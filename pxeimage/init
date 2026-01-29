@@ -50,6 +50,15 @@ for iface in $(/bin/busybox ls /sys/class/net/ | /bin/busybox grep -v lo); do
 done
 /bin/busybox sleep 3
 
+# Sync time from NTP and set hardware clock
+/bin/busybox echo "Syncing time from NTP..."
+/bin/busybox ntpd -n -q -p pool.ntp.org 2>/dev/null && {
+    /bin/busybox echo "Time: $(/bin/busybox date)"
+    /bin/busybox hwclock -w 2>/dev/null && /bin/busybox echo "Hardware clock updated"
+} || /bin/busybox echo "NTP sync failed (will retry in background)"
+# Start ntpd in background to keep time synced
+/bin/busybox ntpd -p pool.ntp.org 2>/dev/null &
+
 /bin/busybox echo ""
 /bin/busybox echo "Network:"
 /bin/busybox ip -4 addr show | /bin/busybox grep "inet " | /bin/busybox grep -v "127.0.0.1"
@@ -70,6 +79,7 @@ done
 /bin/busybox echo "============================================"
 /bin/busybox echo "Hostname: $(/bin/busybox hostname)"
 /bin/busybox echo "Kernel:   $(/bin/busybox uname -r)"
+/bin/busybox echo "Time:     $(/bin/busybox date)"
 /bin/busybox echo ""
 /bin/busybox echo "CPU: $(/bin/busybox grep 'model name' /proc/cpuinfo | /bin/busybox head -1 | /bin/busybox cut -d: -f2 | /bin/busybox sed 's/^ //')"
 /bin/busybox echo "Cores: $(/bin/busybox nproc)"
