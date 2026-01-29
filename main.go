@@ -162,6 +162,39 @@ func getNetworkInterfaces() []NetworkInterface {
 	return interfaces
 }
 
+var cachedTimezone *time.Location
+var cachedTzName string
+var timezoneChecked bool
+
+func getTimezone() (*time.Location, string) {
+	if timezoneChecked {
+		return cachedTimezone, cachedTzName
+	}
+	timezoneChecked = true
+
+	// Try IP geolocation to detect timezone with offset
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://ip-api.com/json/?fields=timezone,offset")
+	if err == nil {
+		defer resp.Body.Close()
+		var result struct {
+			Timezone string `json:"timezone"`
+			Offset   int    `json:"offset"` // offset in seconds
+		}
+		if json.NewDecoder(resp.Body).Decode(&result) == nil && result.Timezone != "" {
+			// Create fixed timezone from offset
+			cachedTimezone = time.FixedZone(result.Timezone, result.Offset)
+			cachedTzName = result.Timezone
+			return cachedTimezone, cachedTzName
+		}
+	}
+
+	// Fall back to UTC
+	cachedTimezone = time.UTC
+	cachedTzName = "UTC"
+	return cachedTimezone, cachedTzName
+}
+
 func handleWebUI(w http.ResponseWriter, r *http.Request) {
 	hostname, _ := os.Hostname()
 	cpu, _ := runShell("grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2")
@@ -176,7 +209,8 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
 		memFree = memFields[3]
 	}
 
-	currentTime := time.Now().Format("2006-01-02 15:04:05 MST")
+	loc, tzName := getTimezone()
+	currentTime := time.Now().In(loc).Format("2006-01-02 15:04:05") + " " + tzName
 	uptime, _ := runShell("uptime | sed 's/.*up/up/' | cut -d, -f1,2")
 
 	interfaces := getNetworkInterfaces()
@@ -188,6 +222,7 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
 	html := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>%s - Bare Metal Services</title>
     <meta http-equiv="refresh" content="30">
     <style>
@@ -212,7 +247,7 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
 </head>
 <body>
     <div class="container">
-        <h1>🖥️ %s</h1>
+        <h1>%s</h1>
         <p class="time">%s</p>
         <p class="label">Uptime: <span class="value">%s</span></p>
 
