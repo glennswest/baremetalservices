@@ -1,0 +1,99 @@
+#!/bin/busybox sh
+
+# Early setup
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+/bin/busybox mount -t proc proc /proc
+/bin/busybox mount -t sysfs sys /sys
+/bin/busybox mount -t devtmpfs dev /dev 2>/dev/null || /bin/busybox mdev -s
+/bin/busybox mkdir -p /dev/pts /run /var/run /tmp
+/bin/busybox mount -t devpts devpts /dev/pts 2>/dev/null
+
+# Redirect all output to serial console
+exec >/dev/ttyS1 2>&1
+
+/bin/busybox echo "=== Bare Metal Services Booting ==="
+
+# Load network drivers
+/bin/busybox modprobe e1000 2>/dev/null
+/bin/busybox modprobe e1000e 2>/dev/null
+/bin/busybox modprobe igb 2>/dev/null
+/bin/busybox modprobe ixgbe 2>/dev/null
+/bin/busybox modprobe r8169 2>/dev/null
+/bin/busybox modprobe virtio_net 2>/dev/null
+/bin/busybox modprobe mlx4_core 2>/dev/null
+/bin/busybox modprobe mlx4_en 2>/dev/null
+/bin/busybox modprobe mlx5_core 2>/dev/null
+
+# Load IPMI drivers
+/bin/busybox modprobe ipmi_msghandler 2>/dev/null
+/bin/busybox modprobe ipmi_devintf 2>/dev/null
+/bin/busybox modprobe ipmi_si 2>/dev/null
+
+/bin/busybox hostname baremetalservices
+/bin/busybox ip link set lo up
+
+# Enable passwordless root login with valid shell
+/bin/busybox sed -i 's|^root:.*|root:x:0:0:root:/root:/bin/ash|' /etc/passwd
+/bin/busybox sed -i 's|^root:.*|root::0::::::|' /etc/shadow 2>/dev/null || true
+
+# Fix SSH authorized_keys ownership
+/bin/busybox chown -R 0:0 /root/.ssh 2>/dev/null || true
+
+/bin/busybox sleep 2
+# Bring up all interfaces and start DHCP (with background retry)
+for iface in $(/bin/busybox ls /sys/class/net/ | /bin/busybox grep -v lo); do
+    /bin/busybox echo "Configuring $iface..."
+    /bin/busybox ip link set $iface up
+    # Run udhcpc in background with retries
+    /bin/busybox udhcpc -i $iface -b -R -p /var/run/udhcpc.$iface.pid 2>/dev/null &
+done
+/bin/busybox sleep 3
+
+/bin/busybox echo ""
+/bin/busybox echo "Network:"
+/bin/busybox ip -4 addr show | /bin/busybox grep "inet " | /bin/busybox grep -v "127.0.0.1"
+
+# Start SSH server
+/bin/busybox mkdir -p /etc/dropbear
+/usr/sbin/dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key 2>/dev/null
+/usr/sbin/dropbear -B -R -E -p 22 &
+
+# Start Bare Metal Services API
+/bin/busybox echo "Starting Bare Metal Services API on port 8080..."
+/usr/bin/baremetalservices &
+
+# Display system info
+/bin/busybox echo ""
+/bin/busybox echo "============================================"
+/bin/busybox echo "         SYSTEM INFORMATION"
+/bin/busybox echo "============================================"
+/bin/busybox echo "Hostname: $(/bin/busybox hostname)"
+/bin/busybox echo "Kernel:   $(/bin/busybox uname -r)"
+/bin/busybox echo ""
+/bin/busybox echo "CPU: $(/bin/busybox grep 'model name' /proc/cpuinfo | /bin/busybox head -1 | /bin/busybox cut -d: -f2 | /bin/busybox sed 's/^ //')"
+/bin/busybox echo "Cores: $(/bin/busybox nproc)"
+/bin/busybox echo ""
+/bin/busybox echo "Memory:"
+/bin/busybox free -h | /bin/busybox grep -E "Mem|total"
+/bin/busybox echo ""
+/bin/busybox echo "Disks:"
+/bin/busybox lsblk -d -o NAME,SIZE,MODEL 2>/dev/null || /bin/busybox fdisk -l 2>/dev/null | /bin/busybox grep "Disk /dev"
+/bin/busybox echo ""
+/bin/busybox echo "Network:"
+/bin/busybox ip -4 addr show | /bin/busybox grep "inet " | /bin/busybox grep -v "127.0.0.1"
+/bin/busybox echo ""
+/bin/busybox echo "============================================"
+/bin/busybox echo "    Bare Metal Services Ready"
+/bin/busybox echo "    SSH: root (no password) port 22"
+/bin/busybox echo "    API: http://<ip>:8080/"
+/bin/busybox echo "============================================"
+
+# Start respawning shell on serial console
+(while true; do
+    /bin/busybox setsid /bin/busybox sh -c 'trap "" HUP; TERM=dumb PS1="# " exec sh' </dev/ttyS1 >/dev/ttyS1 2>&1
+    sleep 1
+done) &
+
+# Start shell on main console
+exec /bin/busybox sh

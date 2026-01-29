@@ -1,0 +1,8 @@
+DEFAULT baremetalservices
+TIMEOUT 50
+PROMPT 1
+
+LABEL baremetalservices
+    KERNEL vmlinuz
+    INITRD initramfs
+    APPEND console=tty0 console=ttyS1,115200n8 ip=dhcp

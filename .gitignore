@@ -1,0 +1,4 @@
+baremetalservices
+baremetalservices-linux
+pxeimage/boot/initramfs
+pxeimage/rootfs/authorized_keys
