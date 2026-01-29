@@ -33,6 +33,16 @@ exec >/dev/ttyS1 2>&1
 /bin/busybox hostname baremetalservices
 /bin/busybox ip link set lo up
 
+# Set hostname from reverse DNS after network is up (runs in background)
+(sleep 10; ETH0_IP=$(/bin/busybox ip -4 addr show eth0 2>/dev/null | /bin/busybox grep "inet " | /bin/busybox awk '{print $2}' | /bin/busybox cut -d/ -f1); \
+ if [ -n "$ETH0_IP" ]; then \
+   RDNS=$(/bin/busybox nslookup "$ETH0_IP" 2>/dev/null | /bin/busybox grep "name = " | /bin/busybox awk '{print $NF}' | /bin/busybox sed 's/\.$//'); \
+   if [ -n "$RDNS" ]; then \
+     /bin/busybox hostname "$RDNS"; \
+     /bin/busybox echo "Hostname set to: $RDNS"; \
+   fi; \
+ fi) &
+
 # Enable passwordless root login with valid shell
 /bin/busybox sed -i 's|^root:.*|root:x:0:0:root:/root:/bin/ash|' /etc/passwd
 /bin/busybox sed -i 's|^root:.*|root::0::::::|' /etc/shadow 2>/dev/null || true
