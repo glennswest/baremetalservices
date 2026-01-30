@@ -58,14 +58,27 @@ for iface in $(/bin/busybox ls /sys/class/net/ | /bin/busybox grep -v lo); do
     # Run udhcpc in background with retries
     /bin/busybox udhcpc -i $iface -b -R -p /var/run/udhcpc.$iface.pid 2>/dev/null &
 done
-/bin/busybox sleep 3
+# Wait for network connectivity (gateway reachable)
+/bin/busybox echo "Waiting for network..."
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    GATEWAY=$(/bin/busybox ip route | /bin/busybox grep default | /bin/busybox awk '{print $3}' | /bin/busybox head -1)
+    if [ -n "$GATEWAY" ] && /bin/busybox ping -c 1 -W 1 "$GATEWAY" >/dev/null 2>&1; then
+        /bin/busybox echo "Network ready (gateway: $GATEWAY)"
+        break
+    fi
+    /bin/busybox sleep 2
+done
 
 # Sync time from NTP and set hardware clock
 /bin/busybox echo "Syncing time from NTP..."
-/bin/busybox ntpd -n -q -p pool.ntp.org 2>/dev/null && {
-    /bin/busybox echo "Time: $(/bin/busybox date)"
-    /bin/busybox hwclock -w 2>/dev/null && /bin/busybox echo "Hardware clock updated"
-} || /bin/busybox echo "NTP sync failed (will retry in background)"
+if /bin/busybox ntpd -n -q -p pool.ntp.org 2>/dev/null; then
+    /bin/busybox echo "Time synced: $(/bin/busybox date)"
+    if /bin/busybox hwclock -w 2>/dev/null; then
+        /bin/busybox echo "Hardware clock set: $(/bin/busybox hwclock -r 2>/dev/null)"
+    fi
+else
+    /bin/busybox echo "NTP sync failed (will retry in background)"
+fi
 # Start ntpd in background to keep time synced
 /bin/busybox ntpd -p pool.ntp.org 2>/dev/null &
 

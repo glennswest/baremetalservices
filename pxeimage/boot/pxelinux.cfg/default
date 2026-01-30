@@ -3,6 +3,13 @@ TIMEOUT 50
 PROMPT 1
 
 LABEL baremetalservices
+    MENU LABEL Bare Metal Services (Linux)
     KERNEL vmlinuz
     INITRD initramfs
-    APPEND console=tty0 console=ttyS1,115200n8 ip=dhcp
+    APPEND console=tty0 console=ttyS1,115200n8 ip=dhcp iomem=relaxed
+
+LABEL biosupdate
+    MENU LABEL BIOS Update (FreeDOS)
+    KERNEL memdisk
+    INITRD biosupdate.img
+    APPEND raw

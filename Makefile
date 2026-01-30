@@ -2,7 +2,7 @@
 
 BINARY=baremetalservices
 VERSION=1.0.0
-PXE_SERVER=root@pxe11.gw.lo
+PXE_SERVER=root@pxe.g10.lo
 PXE_DIR=/tftpboot
 
 build:

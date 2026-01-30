@@ -31,13 +31,15 @@ type SystemInfo struct {
 }
 
 type NetworkInterface struct {
-	Name    string `json:"name"`
-	MAC     string `json:"mac"`
-	IPv4    string `json:"ipv4"`
-	IPv6    string `json:"ipv6"`
-	State   string `json:"state"`
-	Speed   string `json:"speed"`
-	Driver  string `json:"driver"`
+	Name     string `json:"name"`
+	MAC      string `json:"mac"`
+	IPv4     string `json:"ipv4"`
+	IPv6     string `json:"ipv6"`
+	State    string `json:"state"`
+	Speed    string `json:"speed"`
+	Driver   string `json:"driver"`
+	Firmware string `json:"firmware,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
 type DiskInfo struct {
@@ -45,7 +47,18 @@ type DiskInfo struct {
 	Size       string `json:"size"`
 	Type       string `json:"type"`
 	Model      string `json:"model"`
+	Serial     string `json:"serial,omitempty"`
 	MountPoint string `json:"mountpoint,omitempty"`
+}
+
+type MemoryDIMM struct {
+	Locator      string `json:"locator"`
+	Size         string `json:"size"`
+	Type         string `json:"type"`
+	Speed        string `json:"speed"`
+	Manufacturer string `json:"manufacturer"`
+	PartNumber   string `json:"part_number"`
+	SerialNumber string `json:"serial_number"`
 }
 
 type IPMIInfo struct {
@@ -55,6 +68,40 @@ type IPMIInfo struct {
 	Subnet     string `json:"subnet_mask"`
 	Gateway    string `json:"gateway"`
 	Users      string `json:"users"`
+}
+
+type AssetInfo struct {
+	System    SystemAsset    `json:"system"`
+	BIOS      BIOSAsset      `json:"bios"`
+	Chassis   ChassisAsset   `json:"chassis"`
+	Baseboard BaseboardAsset `json:"baseboard"`
+}
+
+type SystemAsset struct {
+	Manufacturer string `json:"manufacturer"`
+	ProductName  string `json:"product_name"`
+	SerialNumber string `json:"serial_number"`
+	UUID         string `json:"uuid"`
+}
+
+type BIOSAsset struct {
+	Vendor      string `json:"vendor"`
+	Version     string `json:"version"`
+	ReleaseDate string `json:"release_date"`
+}
+
+type ChassisAsset struct {
+	Type         string `json:"type"`
+	Manufacturer string `json:"manufacturer"`
+	SerialNumber string `json:"serial_number"`
+	AssetTag     string `json:"asset_tag"`
+}
+
+type BaseboardAsset struct {
+	Manufacturer string `json:"manufacturer"`
+	ProductName  string `json:"product_name"`
+	SerialNumber string `json:"serial_number"`
+	Version      string `json:"version"`
 }
 
 func runCommand(name string, args ...string) (string, error) {
@@ -67,6 +114,124 @@ func runShell(command string) (string, error) {
 	cmd := exec.Command("sh", "-c", command)
 	output, err := cmd.CombinedOutput()
 	return string(output), err
+}
+
+var mstflintCache map[string]map[string]string
+var mstflintCached bool
+
+func getMellanoxFirmwareInfo(pciAddr string) map[string]string {
+	if mstflintCache == nil {
+		mstflintCache = make(map[string]map[string]string)
+	}
+
+	if info, ok := mstflintCache[pciAddr]; ok {
+		return info
+	}
+
+	info := make(map[string]string)
+	mstflintCache[pciAddr] = info
+
+	out, err := runShell(fmt.Sprintf("mstflint -d %s q 2>/dev/null", pciAddr))
+	if err != nil {
+		return info
+	}
+
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, ":") {
+			parts := strings.SplitN(line, ":", 2)
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			info[key] = val
+		}
+	}
+	return info
+}
+
+func readDMI(field string) string {
+	path := "/sys/class/dmi/id/" + field
+	if out, err := runShell(fmt.Sprintf("cat %s 2>/dev/null", path)); err == nil {
+		val := strings.TrimSpace(out)
+		if val != "" && val != "To Be Filled By O.E.M." && val != "Default string" && val != "Not Specified" {
+			return val
+		}
+	}
+	return ""
+}
+
+func getAssetInfo() AssetInfo {
+	return AssetInfo{
+		System: SystemAsset{
+			Manufacturer: readDMI("sys_vendor"),
+			ProductName:  readDMI("product_name"),
+			SerialNumber: readDMI("product_serial"),
+			UUID:         readDMI("product_uuid"),
+		},
+		BIOS: BIOSAsset{
+			Vendor:      readDMI("bios_vendor"),
+			Version:     readDMI("bios_version"),
+			ReleaseDate: readDMI("bios_date"),
+		},
+		Chassis: ChassisAsset{
+			Type:         readDMI("chassis_type"),
+			Manufacturer: readDMI("chassis_vendor"),
+			SerialNumber: readDMI("chassis_serial"),
+			AssetTag:     readDMI("chassis_asset_tag"),
+		},
+		Baseboard: BaseboardAsset{
+			Manufacturer: readDMI("board_vendor"),
+			ProductName:  readDMI("board_name"),
+			SerialNumber: readDMI("board_serial"),
+			Version:      readDMI("board_version"),
+		},
+	}
+}
+
+func getNICFirmware(iface string, driver string) (firmware string, model string) {
+	// Get PCI device path
+	pciPath, err := runShell(fmt.Sprintf("basename $(readlink /sys/class/net/%s/device 2>/dev/null) 2>/dev/null", iface))
+	if err != nil {
+		return "", ""
+	}
+	pciAddr := strings.TrimSpace(pciPath)
+
+	if driver == "mlx4_core" || driver == "mlx4_en" || driver == "mlx5_core" {
+		// Use mstflint for Mellanox firmware
+		mlxInfo := getMellanoxFirmwareInfo(pciAddr)
+		firmware = mlxInfo["FW Version"]
+		model = mlxInfo["PSID"]
+		if model == "" {
+			model = mlxInfo["Description"]
+		}
+		// Try VPD for model info if mstflint didn't provide it
+		if model == "" || model == "PSID" {
+			if vpd, err := runShell(fmt.Sprintf("strings /sys/class/net/%s/device/vpd 2>/dev/null", iface)); err == nil {
+				lines := strings.Split(vpd, "\n")
+				for i, line := range lines {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "MCX") || strings.HasPrefix(line, "CX") {
+						model = line
+						break
+					}
+					if i == 0 && strings.Contains(line, "ConnectX") {
+						model = line
+					}
+				}
+			}
+		}
+	} else if driver == "ixgbe" || driver == "i40e" || driver == "ice" {
+		// Intel NICs - get model from device/subsystem info
+		if vendor, err := runShell(fmt.Sprintf("cat /sys/class/net/%s/device/subsystem_vendor 2>/dev/null", iface)); err == nil {
+			if device, err := runShell(fmt.Sprintf("cat /sys/class/net/%s/device/subsystem_device 2>/dev/null", iface)); err == nil {
+				model = fmt.Sprintf("Intel %s (subsys %s:%s)", driver,
+					strings.TrimSpace(strings.TrimPrefix(vendor, "0x")),
+					strings.TrimSpace(strings.TrimPrefix(device, "0x")))
+			}
+		}
+		// Intel firmware is in EEPROM, typically updated via motherboard BIOS
+		firmware = "EEPROM (via BIOS)"
+	}
+	return firmware, model
 }
 
 func loadIPMIModules() {
@@ -87,14 +252,21 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	endpoints := map[string]string{
-		"GET /":                 "API documentation",
-		"GET /health":           "Health check",
-		"GET /system":           "System information",
-		"GET /ipmi":             "IPMI information",
-		"GET /disks":            "List all disks",
-		"POST /ipmi/reset":      "Reset IPMI to ADMIN/ADMIN",
-		"POST /disks/wipe":      "Wipe ALL disks (DESTRUCTIVE)",
-		"POST /disks/wipe/{dev}": "Wipe specific disk (DESTRUCTIVE)",
+		"GET /":                       "API documentation",
+		"GET /health":                 "Health check",
+		"GET /system":                 "System information",
+		"GET /asset":                  "Asset information (serial numbers, UUIDs)",
+		"GET /network":                "Network interfaces with firmware info",
+		"GET /memory":                 "Memory DIMM info (model, serial, speed)",
+		"GET /ipmi":                   "IPMI information",
+		"GET /disks":                  "List all disks with serial numbers",
+		"POST /ipmi/reset":            "Reset IPMI to ADMIN/ADMIN",
+		"POST /disks/wipe":            "Wipe ALL disks (DESTRUCTIVE)",
+		"POST /disks/wipe/{dev}":      "Wipe specific disk (DESTRUCTIVE)",
+		"GET /firmware":               "List bundled firmware files",
+		"POST /firmware/update":       "Update Mellanox NIC firmware (device=<pci_addr>, optional url=<firmware_url>)",
+		"GET /bios":                   "BIOS version and update availability",
+		"POST /bios/update":           "Update BIOS if needed (checks board compatibility first)",
 	}
 
 	sendJSON(w, http.StatusOK, APIResponse{
@@ -145,6 +317,9 @@ func getNetworkInterfaces() []NetworkInterface {
 		if driver, err := runShell(fmt.Sprintf("basename $(readlink /sys/class/net/%s/device/driver 2>/dev/null) 2>/dev/null", iface)); err == nil {
 			ni.Driver = strings.TrimSpace(driver)
 		}
+
+		// Firmware and model
+		ni.Firmware, ni.Model = getNICFirmware(iface, ni.Driver)
 
 		// IPv4
 		if ipv4, err := runShell(fmt.Sprintf("ip -4 addr show %s 2>/dev/null | grep 'inet ' | awk '{print $2}'", iface)); err == nil {
@@ -214,6 +389,7 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
 	uptime, _ := runShell("uptime | sed 's/.*up/up/' | cut -d, -f1,2")
 
 	interfaces := getNetworkInterfaces()
+	asset := getAssetInfo()
 
 	// Get disks
 	disksOut, _ := runShell("lsblk -d -n -o NAME,SIZE,TYPE,MODEL | grep disk")
@@ -269,15 +445,27 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
                     <tr><td class="label">Free</td><td class="value">%s</td></tr>
                 </table>
             </div>
+            <div class="card">
+                <h2>Asset Info</h2>
+                <table>
+                    <tr><td class="label">Manufacturer</td><td class="value">%s</td></tr>
+                    <tr><td class="label">Product</td><td class="value">%s</td></tr>
+                    <tr><td class="label">Serial</td><td class="value mac">%s</td></tr>
+                    <tr><td class="label">BIOS</td><td class="value">%s %s</td></tr>
+                    <tr><td class="label">Board</td><td class="value">%s</td></tr>
+                </table>
+            </div>
         </div>
 
         <div class="card">
             <h2>Network Interfaces</h2>
             <table>
-                <tr><th>Interface</th><th>MAC Address</th><th>IPv4</th><th>State</th><th>Speed</th><th>Driver</th></tr>
+                <tr><th>Interface</th><th>MAC Address</th><th>IPv4</th><th>State</th><th>Speed</th><th>Driver</th><th>Firmware</th><th>Model</th></tr>
 `, hostname, hostname, currentTime, strings.TrimSpace(uptime),
 		hostname, strings.TrimSpace(kernel), strings.TrimSpace(cpu), strings.TrimSpace(cores),
-		memTotal, memUsed, memFree)
+		memTotal, memUsed, memFree,
+		asset.System.Manufacturer, asset.System.ProductName, asset.System.SerialNumber,
+		asset.BIOS.Vendor, asset.BIOS.Version, asset.Baseboard.ProductName)
 
 	for _, iface := range interfaces {
 		stateClass := "status-down"
@@ -291,8 +479,10 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
                     <td class="%s">%s</td>
                     <td class="value">%s</td>
                     <td class="value">%s</td>
+                    <td class="value">%s</td>
+                    <td class="value">%s</td>
                 </tr>
-`, iface.Name, iface.MAC, iface.IPv4, stateClass, iface.State, iface.Speed, iface.Driver)
+`, iface.Name, iface.MAC, iface.IPv4, stateClass, iface.State, iface.Speed, iface.Driver, iface.Firmware, iface.Model)
 	}
 
 	html += `            </table>
@@ -458,6 +648,332 @@ func handleIPMIReset(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func handleAsset(w http.ResponseWriter, r *http.Request) {
+	info := getAssetInfo()
+	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: info})
+}
+
+func handleNetwork(w http.ResponseWriter, r *http.Request) {
+	interfaces := getNetworkInterfaces()
+	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: interfaces})
+}
+
+func handleMemory(w http.ResponseWriter, r *http.Request) {
+	var dimms []MemoryDIMM
+
+	out, err := runShell("dmidecode -t memory 2>/dev/null")
+	if err != nil {
+		sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: dimms, Message: "dmidecode not available"})
+		return
+	}
+
+	var currentDIMM *MemoryDIMM
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Memory Device") {
+			if currentDIMM != nil && currentDIMM.Size != "" && currentDIMM.Size != "No Module Installed" {
+				dimms = append(dimms, *currentDIMM)
+			}
+			currentDIMM = &MemoryDIMM{}
+		} else if currentDIMM != nil && strings.Contains(line, ":") {
+			parts := strings.SplitN(line, ":", 2)
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			switch key {
+			case "Locator":
+				currentDIMM.Locator = val
+			case "Size":
+				currentDIMM.Size = val
+			case "Type":
+				currentDIMM.Type = val
+			case "Speed":
+				currentDIMM.Speed = val
+			case "Manufacturer":
+				if val != "Unknown" && val != "" {
+					currentDIMM.Manufacturer = val
+				}
+			case "Part Number":
+				if val != "Unknown" && val != "" {
+					currentDIMM.PartNumber = strings.TrimSpace(val)
+				}
+			case "Serial Number":
+				if val != "Unknown" && val != "" {
+					currentDIMM.SerialNumber = val
+				}
+			}
+		}
+	}
+	if currentDIMM != nil && currentDIMM.Size != "" && currentDIMM.Size != "No Module Installed" {
+		dimms = append(dimms, *currentDIMM)
+	}
+
+	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: dimms})
+}
+
+func handleFirmwareList(w http.ResponseWriter, r *http.Request) {
+	var files []string
+	out, err := runShell("ls /usr/share/firmware/mellanox/*.bin 2>/dev/null")
+	if err == nil {
+		for _, f := range strings.Split(strings.TrimSpace(out), "\n") {
+			if f != "" {
+				files = append(files, f)
+			}
+		}
+	}
+	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: files})
+}
+
+func handleFirmwareUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSON(w, http.StatusMethodNotAllowed, APIResponse{Status: "error", Error: "Method not allowed"})
+		return
+	}
+
+	r.ParseForm()
+	device := r.FormValue("device")
+	firmwareURL := r.FormValue("url")
+
+	if device == "" {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Missing 'device' parameter (PCI address like 05:00.0)"})
+		return
+	}
+
+	results := make(map[string]string)
+	var firmwarePath string
+
+	// Try bundled firmware first (auto-detect based on device PSID)
+	if firmwareURL == "" {
+		// Get device PSID
+		psidOut, _ := runShell(fmt.Sprintf("mstflint -d %s q 2>/dev/null | grep PSID | awk '{print $2}'", device))
+		psid := strings.TrimSpace(psidOut)
+		results["device_psid"] = psid
+
+		// Find matching firmware
+		fwFiles, _ := runShell("ls /usr/share/firmware/mellanox/*.bin 2>/dev/null")
+		for _, fwFile := range strings.Split(strings.TrimSpace(fwFiles), "\n") {
+			if fwFile != "" {
+				firmwarePath = fwFile
+				results["firmware_file"] = firmwarePath
+				break
+			}
+		}
+		if firmwarePath == "" {
+			sendJSON(w, http.StatusBadRequest, APIResponse{
+				Status: "error",
+				Error:  "No bundled firmware found. Provide 'url' parameter to download firmware.",
+			})
+			return
+		}
+	} else {
+		// Download firmware from URL
+		firmwarePath = "/tmp/firmware.bin"
+		results["download_url"] = firmwareURL
+		if out, err := runShell(fmt.Sprintf("wget -q -O %s '%s' 2>&1", firmwarePath, firmwareURL)); err != nil {
+			sendJSON(w, http.StatusInternalServerError, APIResponse{
+				Status: "error",
+				Error:  "Failed to download firmware: " + out,
+			})
+			return
+		}
+		results["download"] = "success"
+	}
+
+	// Get current firmware version
+	if out, err := runShell(fmt.Sprintf("mstflint -d %s q 2>&1 | grep 'FW Version'", device)); err == nil {
+		results["old_version"] = strings.TrimSpace(out)
+	}
+
+	// Verify firmware file matches device
+	if out, err := runShell(fmt.Sprintf("mstflint -d %s -i %s v 2>&1", device, firmwarePath)); err != nil {
+		results["verify"] = out
+		sendJSON(w, http.StatusBadRequest, APIResponse{
+			Status: "error",
+			Error:  "Firmware verification failed - PSID may not match",
+			Data:   results,
+		})
+		return
+	}
+	results["verify"] = "success"
+
+	// Burn firmware
+	if out, err := runShell(fmt.Sprintf("mstflint -d %s -i %s -y burn 2>&1", device, firmwarePath)); err != nil {
+		results["burn"] = out
+		sendJSON(w, http.StatusInternalServerError, APIResponse{
+			Status: "error",
+			Error:  "Firmware burn failed",
+			Data:   results,
+		})
+		return
+	}
+	results["burn"] = "success"
+
+	// Query new firmware version
+	if out, err := runShell(fmt.Sprintf("mstflint -d %s q 2>&1 | grep 'FW Version'", device)); err == nil {
+		results["new_version"] = strings.TrimSpace(out)
+	}
+
+	results["note"] = "Reboot required for firmware to take effect"
+
+	sendJSON(w, http.StatusOK, APIResponse{
+		Status:  "ok",
+		Message: "Firmware updated successfully",
+		Data:    results,
+	})
+}
+
+type BIOSInfo struct {
+	Board           string `json:"board"`
+	CurrentVersion  string `json:"current_version"`
+	CurrentDate     string `json:"current_date"`
+	LatestVersion   string `json:"latest_version,omitempty"`
+	LatestFile      string `json:"latest_file,omitempty"`
+	UpdateAvailable bool   `json:"update_available"`
+	UpdateMethod    string `json:"update_method,omitempty"`
+}
+
+var biosDatabase = map[string]struct {
+	LatestVersion string
+	FileName      string
+}{
+	"X9SRD-F": {LatestVersion: "3.2b", FileName: "X9SRD-F_3.2b.bin"},
+}
+
+func handleBIOS(w http.ResponseWriter, r *http.Request) {
+	info := BIOSInfo{}
+
+	// Get board name
+	info.Board = readDMI("board_name")
+	info.CurrentVersion = readDMI("bios_version")
+	info.CurrentDate = readDMI("bios_date")
+
+	// Check if we have an update for this board
+	if dbEntry, ok := biosDatabase[info.Board]; ok {
+		info.LatestVersion = dbEntry.LatestVersion
+		// Check if file exists
+		filePath := "/usr/share/firmware/bios/" + dbEntry.FileName
+		if _, err := runShell(fmt.Sprintf("test -f %s && echo exists", filePath)); err == nil {
+			info.LatestFile = filePath
+		}
+		// Compare versions (simple string compare, works for Supermicro versioning)
+		if info.CurrentVersion != "" && info.LatestVersion != "" && info.CurrentVersion < info.LatestVersion {
+			info.UpdateAvailable = true
+			info.UpdateMethod = "flashrom or BMC web interface"
+		}
+	}
+
+	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: info})
+}
+
+func handleBIOSUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSON(w, http.StatusMethodNotAllowed, APIResponse{Status: "error", Error: "Method not allowed"})
+		return
+	}
+
+	results := make(map[string]interface{})
+
+	// Get board info
+	board := readDMI("board_name")
+	currentVersion := readDMI("bios_version")
+	results["board"] = board
+	results["current_version"] = currentVersion
+
+	// Check if we support this board
+	dbEntry, ok := biosDatabase[board]
+	if !ok {
+		sendJSON(w, http.StatusBadRequest, APIResponse{
+			Status: "error",
+			Error:  fmt.Sprintf("No BIOS update available for board: %s", board),
+			Data:   results,
+		})
+		return
+	}
+
+	results["latest_version"] = dbEntry.LatestVersion
+
+	// Check if update is needed
+	if currentVersion >= dbEntry.LatestVersion {
+		results["status"] = "up_to_date"
+		sendJSON(w, http.StatusOK, APIResponse{
+			Status:  "ok",
+			Message: "BIOS is already up to date",
+			Data:    results,
+		})
+		return
+	}
+
+	// Check if firmware file exists
+	filePath := "/usr/share/firmware/bios/" + dbEntry.FileName
+	if out, err := runShell(fmt.Sprintf("test -f %s && echo exists", filePath)); err != nil || strings.TrimSpace(out) != "exists" {
+		sendJSON(w, http.StatusInternalServerError, APIResponse{
+			Status: "error",
+			Error:  fmt.Sprintf("BIOS file not found: %s", filePath),
+			Data:   results,
+		})
+		return
+	}
+	results["bios_file"] = filePath
+
+	// Check if flashrom is available and probe the chip
+	chipInfo, err := runShell("flashrom -p internal 2>&1")
+	if err != nil {
+		// flashrom probe failed - suggest BMC update instead
+		results["flashrom_error"] = strings.TrimSpace(chipInfo)
+		results["recommendation"] = "Use BMC web interface for BIOS update"
+
+		// Get IPMI IP for BMC access
+		if ipmiIP, err := runShell("ipmitool lan print 1 2>/dev/null | grep 'IP Address' | grep -v Source | awk '{print $4}'"); err == nil {
+			results["bmc_url"] = fmt.Sprintf("http://%s/", strings.TrimSpace(ipmiIP))
+		}
+
+		sendJSON(w, http.StatusOK, APIResponse{
+			Status:  "ok",
+			Message: "flashrom not supported on this board - use BMC web interface",
+			Data:    results,
+		})
+		return
+	}
+	results["flashrom_probe"] = strings.TrimSpace(chipInfo)
+
+	// Attempt BIOS update with flashrom
+	r.ParseForm()
+	force := r.FormValue("force") == "true"
+
+	if !force {
+		results["status"] = "ready"
+		results["warning"] = "BIOS update is risky. Add force=true to proceed."
+		sendJSON(w, http.StatusOK, APIResponse{
+			Status:  "ok",
+			Message: "BIOS update ready - add force=true to proceed",
+			Data:    results,
+		})
+		return
+	}
+
+	// Actually perform the update
+	updateCmd := fmt.Sprintf("flashrom -p internal -w %s 2>&1", filePath)
+	updateOut, err := runShell(updateCmd)
+	results["flashrom_output"] = strings.TrimSpace(updateOut)
+
+	if err != nil {
+		sendJSON(w, http.StatusInternalServerError, APIResponse{
+			Status: "error",
+			Error:  "BIOS update failed",
+			Data:   results,
+		})
+		return
+	}
+
+	results["status"] = "success"
+	results["note"] = "Reboot required for new BIOS to take effect"
+
+	sendJSON(w, http.StatusOK, APIResponse{
+		Status:  "ok",
+		Message: "BIOS updated successfully",
+		Data:    results,
+	})
+}
+
 func handleDisks(w http.ResponseWriter, r *http.Request) {
 	var disks []DiskInfo
 
@@ -473,6 +989,12 @@ func handleDisks(w http.ResponseWriter, r *http.Request) {
 				}
 				if len(fields) > 3 {
 					disk.Model = strings.Join(fields[3:], " ")
+				}
+				// Get serial number via smartctl or sysfs
+				if serial, err := runShell(fmt.Sprintf("smartctl -i /dev/%s 2>/dev/null | grep 'Serial Number' | awk '{print $3}'", disk.Name)); err == nil && strings.TrimSpace(serial) != "" {
+					disk.Serial = strings.TrimSpace(serial)
+				} else if serial, err := runShell(fmt.Sprintf("cat /sys/block/%s/device/serial 2>/dev/null", disk.Name)); err == nil && strings.TrimSpace(serial) != "" {
+					disk.Serial = strings.TrimSpace(serial)
 				}
 				disks = append(disks, disk)
 			}
@@ -558,6 +1080,13 @@ func main() {
 	apiMux.HandleFunc("/", handleRoot)
 	apiMux.HandleFunc("/health", handleHealth)
 	apiMux.HandleFunc("/system", handleSystem)
+	apiMux.HandleFunc("/asset", handleAsset)
+	apiMux.HandleFunc("/network", handleNetwork)
+	apiMux.HandleFunc("/firmware", handleFirmwareList)
+	apiMux.HandleFunc("/firmware/update", handleFirmwareUpdate)
+	apiMux.HandleFunc("/bios", handleBIOS)
+	apiMux.HandleFunc("/bios/update", handleBIOSUpdate)
+	apiMux.HandleFunc("/memory", handleMemory)
 	apiMux.HandleFunc("/ipmi", handleIPMI)
 	apiMux.HandleFunc("/ipmi/reset", handleIPMIReset)
 	apiMux.HandleFunc("/disks", handleDisks)
