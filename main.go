@@ -257,10 +257,11 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		"GET /system":                 "System information",
 		"GET /asset":                  "Asset information (serial numbers, UUIDs)",
 		"GET /network":                "Network interfaces with firmware info",
+		"GET /macs":                   "MAC addresses for eth0, eth1, and IPMI",
 		"GET /memory":                 "Memory DIMM info (model, serial, speed)",
 		"GET /ipmi":                   "IPMI information",
 		"GET /disks":                  "List all disks with serial numbers",
-		"POST /ipmi/reset":            "Reset IPMI to ADMIN/ADMIN",
+		"POST /ipmi/reset":            "Reset IPMI to admin/admin with full access and DHCP",
 		"POST /disks/wipe":            "Wipe ALL disks (DESTRUCTIVE)",
 		"POST /disks/wipe/{dev}":      "Wipe specific disk (DESTRUCTIVE)",
 		"GET /firmware":               "List bundled firmware files",
@@ -622,30 +623,79 @@ func handleIPMIReset(w http.ResponseWriter, r *http.Request) {
 		results["enable_user"] = out
 	}
 
-	// Set channel access
-	if out, err := runShell("ipmitool channel setaccess 1 2 link=on privilege=4"); err == nil {
-		results["channel_access"] = "success"
+	// Set username to admin
+	if out, err := runShell("ipmitool user set name 2 admin"); err == nil {
+		results["set_username"] = "success"
 	} else {
-		results["channel_access"] = out
+		results["set_username"] = out
 	}
 
-	// Set password to ADMIN
-	if out, err := runShell("ipmitool user set password 2 'ADMIN'"); err == nil {
+	// Set password to admin
+	if out, err := runShell("ipmitool user set password 2 admin"); err == nil {
 		results["set_password"] = "success"
 	} else {
 		results["set_password"] = out
 	}
 
-	// Get IPMI IP
+	// Set channel access with full administrator privileges
+	if out, err := runShell("ipmitool channel setaccess 1 2 link=on ipmi=on callin=on privilege=4"); err == nil {
+		results["channel_access"] = "success"
+	} else {
+		results["channel_access"] = out
+	}
+
+	// Set SOL access for user 2
+	if out, err := runShell("ipmitool sol payload enable 1 2 2>/dev/null"); err == nil {
+		results["sol_access"] = "success"
+	} else {
+		results["sol_access"] = out
+	}
+
+	// Set IPMI LAN to DHCP
+	if out, err := runShell("ipmitool lan set 1 ipsrc dhcp"); err == nil {
+		results["set_dhcp"] = "success"
+	} else {
+		results["set_dhcp"] = out
+	}
+
+	// Get IPMI IP after DHCP change
 	if out, err := runShell("ipmitool lan print 1 2>/dev/null | grep 'IP Address' | head -1"); err == nil {
 		results["ipmi_ip"] = strings.TrimSpace(out)
 	}
 
 	sendJSON(w, http.StatusOK, APIResponse{
 		Status:  "ok",
-		Message: "IPMI reset to ADMIN/ADMIN",
+		Message: "IPMI reset to admin/admin with DHCP",
 		Data:    results,
 	})
+}
+
+type MACAddresses struct {
+	Eth0 string `json:"eth0,omitempty"`
+	Eth1 string `json:"eth1,omitempty"`
+	IPMI string `json:"ipmi,omitempty"`
+}
+
+func handleMACs(w http.ResponseWriter, r *http.Request) {
+	macs := MACAddresses{}
+
+	// Get eth0 MAC
+	if mac, err := runShell("cat /sys/class/net/eth0/address 2>/dev/null"); err == nil {
+		macs.Eth0 = strings.TrimSpace(mac)
+	}
+
+	// Get eth1 MAC
+	if mac, err := runShell("cat /sys/class/net/eth1/address 2>/dev/null"); err == nil {
+		macs.Eth1 = strings.TrimSpace(mac)
+	}
+
+	// Get IPMI MAC via ipmitool
+	loadIPMIModules()
+	if out, err := runShell("ipmitool lan print 1 2>/dev/null | grep 'MAC Address' | awk '{print $4}'"); err == nil {
+		macs.IPMI = strings.TrimSpace(out)
+	}
+
+	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: macs})
 }
 
 func handleAsset(w http.ResponseWriter, r *http.Request) {
@@ -1082,6 +1132,7 @@ func main() {
 	apiMux.HandleFunc("/system", handleSystem)
 	apiMux.HandleFunc("/asset", handleAsset)
 	apiMux.HandleFunc("/network", handleNetwork)
+	apiMux.HandleFunc("/macs", handleMACs)
 	apiMux.HandleFunc("/firmware", handleFirmwareList)
 	apiMux.HandleFunc("/firmware/update", handleFirmwareUpdate)
 	apiMux.HandleFunc("/bios", handleBIOS)

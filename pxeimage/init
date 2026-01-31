@@ -55,6 +55,12 @@ exec >/dev/ttyS1 2>&1
 for iface in $(/bin/busybox ls /sys/class/net/ | /bin/busybox grep -v lo); do
     /bin/busybox echo "Configuring $iface..."
     /bin/busybox ip link set $iface up
+    # Disable auto-negotiation and set 10G for 10Gbps NICs (Mellanox mlx4, Intel ixgbe)
+    DRIVER=$(/bin/busybox readlink /sys/class/net/$iface/device/driver 2>/dev/null | /bin/busybox xargs basename 2>/dev/null)
+    if [ "$DRIVER" = "mlx4_core" ] || [ "$DRIVER" = "ixgbe" ]; then
+        /bin/busybox echo "  Setting $iface ($DRIVER): autoneg off, 10G"
+        /usr/sbin/ethtool -s $iface autoneg off speed 10000 duplex full 2>/dev/null || true
+    fi
     # Run udhcpc in background with retries
     /bin/busybox udhcpc -i $iface -b -R -p /var/run/udhcpc.$iface.pid 2>/dev/null &
 done

@@ -47,14 +47,27 @@ curl -sLO "$MAIN_URL/libstdc++-13.2.1_git20240309-r1.apk" || true
 curl -sLO "$MAIN_URL/dmidecode-3.6-r0.apk" || true
 curl -sLO "$COMMUNITY_URL/smartmontools-7.4-r0.apk" || true
 curl -sLO "$COMMUNITY_URL/flashrom-1.3.0-r2.apk" || true
+curl -sLO "$MAIN_URL/ethtool-6.7-r0.apk" || true
+curl -sLO "$MAIN_URL/libmnl-1.0.5-r2.apk" || true
 curl -sLO "$MAIN_URL/pciutils-libs-3.12.0-r1.apk" || true
 curl -sLO "$MAIN_URL/libusb-1.0.27-r0.apk" || true
 curl -sLO "$COMMUNITY_URL/libftdi1-1.5-r3.apk" || true
 curl -sLO "$MAIN_URL/confuse-3.3-r4.apk" || true
-# Extract packages
+curl -sLO "$COMMUNITY_URL/ipmitool-1.8.19-r1.apk" || true
+curl -sLO "$MAIN_URL/libcrypto3-3.3.6-r0.apk" || true
+curl -sLO "$MAIN_URL/readline-8.2.10-r0.apk" || true
+curl -sLO "$MAIN_URL/libncursesw-6.4_p20240420-r2.apk" || true
+curl -sLO "$MAIN_URL/linux-lts-6.6.121-r0.apk" || true
+# Extract packages (except linux-lts which is handled specially)
 for pkg in *.apk; do
-    [ -f "$pkg" ] && tar xzf "$pkg" -C "$BUILD_DIR" 2>/dev/null || true
+    [ -f "$pkg" ] && [ "$pkg" != "linux-lts-6.6.121-r0.apk" ] && tar xzf "$pkg" -C "$BUILD_DIR" 2>/dev/null || true
 done
+# Extract only IPMI modules from linux-lts
+if [ -f "linux-lts-6.6.121-r0.apk" ]; then
+    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/char/ipmi/*' 2>/dev/null || true
+    # Run depmod to update module dependencies
+    depmod -b "$BUILD_DIR" 6.6.121-0-lts 2>/dev/null || true
+fi
 cd "$PROJECT_DIR"
 rm -rf "$BUILD_DIR/tmp/apk" "$BUILD_DIR/.PKGINFO" "$BUILD_DIR/.SIGN."* 2>/dev/null || true
 

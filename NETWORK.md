@@ -13,18 +13,25 @@ mlx4_en: eth1: Link Up
 
 ### Solution
 
-Disable auto-negotiation on the switch port and set a fixed speed:
+Disable auto-negotiation on **both** the switch port and the server NIC.
 
-**Mikrotik RouterOS:**
+**Mikrotik RouterOS (switch side):**
 ```
 /interface ethernet set sfp-sfpplusX auto-negotiation=no speed=10G-baseCR
 ```
 
+**Linux (server side):**
+```bash
+ethtool -s eth1 autoneg off speed 10000 duplex full
+```
+
 ### Working Configuration
 
-| Setting | Value |
-|---------|-------|
-| auto-negotiation | no |
-| speed | 10G-baseCR |
+| Component | Setting | Value |
+|-----------|---------|-------|
+| Switch | auto-negotiation | no |
+| Switch | speed | 10G-baseCR |
+| Server | autoneg | off |
+| Server | speed | 10000 |
 
-The Intel ixgbe (10Gbps) NICs work fine with auto-negotiation enabled.
+Both Mellanox mlx4 and Intel ixgbe NICs should have auto-negotiation disabled when the switch ports are set to fixed speed.
