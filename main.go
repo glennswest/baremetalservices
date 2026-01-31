@@ -261,7 +261,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		"GET /memory":                 "Memory DIMM info (model, serial, speed)",
 		"GET /ipmi":                   "IPMI information",
 		"GET /disks":                  "List all disks with serial numbers",
-		"POST /ipmi/reset":            "Reset IPMI to admin/admin with full access and DHCP",
+		"POST /ipmi/reset":            "Reset IPMI to ADMIN/ADMIN with full access and DHCP",
 		"POST /disks/wipe":            "Wipe ALL disks (DESTRUCTIVE)",
 		"POST /disks/wipe/{dev}":      "Wipe specific disk (DESTRUCTIVE)",
 		"GET /firmware":               "List bundled firmware files",
@@ -623,15 +623,15 @@ func handleIPMIReset(w http.ResponseWriter, r *http.Request) {
 		results["enable_user"] = out
 	}
 
-	// Set username to admin
-	if out, err := runShell("ipmitool user set name 2 admin"); err == nil {
+	// Set username to ADMIN
+	if out, err := runShell("ipmitool user set name 2 ADMIN"); err == nil {
 		results["set_username"] = "success"
 	} else {
 		results["set_username"] = out
 	}
 
-	// Set password to admin
-	if out, err := runShell("ipmitool user set password 2 admin"); err == nil {
+	// Set password to ADMIN
+	if out, err := runShell("ipmitool user set password 2 ADMIN"); err == nil {
 		results["set_password"] = "success"
 	} else {
 		results["set_password"] = out
@@ -665,7 +665,7 @@ func handleIPMIReset(w http.ResponseWriter, r *http.Request) {
 
 	sendJSON(w, http.StatusOK, APIResponse{
 		Status:  "ok",
-		Message: "IPMI reset to admin/admin with DHCP",
+		Message: "IPMI reset to ADMIN/ADMIN with DHCP",
 		Data:    results,
 	})
 }
