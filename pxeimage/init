@@ -25,7 +25,8 @@ exec >/dev/ttyS1 2>&1
 /bin/busybox modprobe mlx4_en 2>/dev/null
 /bin/busybox modprobe mlx5_core 2>/dev/null
 
-# Load IPMI drivers
+# Build module dependencies and load IPMI drivers
+/sbin/depmod -a 2>/dev/null
 /bin/busybox modprobe ipmi_msghandler 2>/dev/null
 /bin/busybox modprobe ipmi_devintf 2>/dev/null
 /bin/busybox modprobe ipmi_si 2>/dev/null
