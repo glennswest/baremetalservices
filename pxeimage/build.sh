@@ -69,6 +69,7 @@ curl -sLO "$MAIN_URL/nvme-cli-2.9.1-r0.apk" || true
 curl -sLO "$MAIN_URL/libnvme-1.9-r0.apk" || true
 curl -sLO "$MAIN_URL/libuuid-2.40.1-r1.apk" || true
 curl -sLO "$MAIN_URL/libblkid-2.40.1-r1.apk" || true
+curl -sLO "$MAIN_URL/libeconf-0.6.3-r0.apk" || true
 curl -sLO "$MAIN_URL/libsmartcols-2.40.1-r1.apk" || true
 curl -sLO "$MAIN_URL/libmount-2.40.1-r1.apk" || true
 curl -sLO "$MAIN_URL/libfdisk-2.40.1-r1.apk" || true

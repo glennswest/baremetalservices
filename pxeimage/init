@@ -14,6 +14,9 @@ exec >/dev/ttyS1 2>&1
 
 /bin/busybox echo "=== Bare Metal Services Booting ==="
 
+# Build module dependencies first (required for all modprobe calls)
+/sbin/depmod -a 2>/dev/null
+
 # Load SATA/AHCI drivers
 /bin/busybox modprobe ahci 2>/dev/null
 /bin/busybox modprobe libata 2>/dev/null
@@ -33,8 +36,7 @@ exec >/dev/ttyS1 2>&1
 /bin/busybox modprobe mlx4_en 2>/dev/null
 /bin/busybox modprobe mlx5_core 2>/dev/null
 
-# Build module dependencies and load IPMI drivers
-/sbin/depmod -a 2>/dev/null
+# Load IPMI drivers
 /bin/busybox modprobe ipmi_msghandler 2>/dev/null
 /bin/busybox modprobe ipmi_devintf 2>/dev/null
 /bin/busybox modprobe ipmi_si 2>/dev/null
