@@ -14,6 +14,14 @@ exec >/dev/ttyS1 2>&1
 
 /bin/busybox echo "=== Bare Metal Services Booting ==="
 
+# Load SATA/AHCI drivers
+/bin/busybox modprobe ahci 2>/dev/null
+/bin/busybox modprobe libata 2>/dev/null
+/bin/busybox modprobe sd_mod 2>/dev/null
+/bin/busybox modprobe sr_mod 2>/dev/null
+/bin/busybox modprobe ata_piix 2>/dev/null
+/bin/busybox sleep 2
+
 # Load network drivers
 /bin/busybox modprobe e1000 2>/dev/null
 /bin/busybox modprobe e1000e 2>/dev/null

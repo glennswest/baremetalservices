@@ -59,26 +59,33 @@ curl -sLO "$MAIN_URL/readline-8.2.10-r0.apk" || true
 curl -sLO "$MAIN_URL/libncursesw-6.4_p20240420-r2.apk" || true
 curl -sLO "$MAIN_URL/linux-lts-6.6.121-r0.apk" || true
 # Disk management tools
-curl -sLO "$MAIN_URL/hdparm-9.65-r1.apk" || true
-curl -sLO "$MAIN_URL/parted-3.6-r1.apk" || true
-curl -sLO "$MAIN_URL/e2fsprogs-1.47.1-r1.apk" || true
-curl -sLO "$MAIN_URL/e2fsprogs-libs-1.47.1-r1.apk" || true
-curl -sLO "$COMMUNITY_URL/xfsprogs-6.8.0-r0.apk" || true
+curl -sLO "$MAIN_URL/hdparm-9.65-r2.apk" || true
+curl -sLO "$MAIN_URL/parted-3.6-r2.apk" || true
+curl -sLO "$MAIN_URL/e2fsprogs-1.47.0-r5.apk" || true
+curl -sLO "$MAIN_URL/e2fsprogs-libs-1.47.0-r5.apk" || true
+curl -sLO "$MAIN_URL/xfsprogs-6.8.0-r0.apk" || true
 curl -sLO "$MAIN_URL/dosfstools-4.2-r2.apk" || true
-curl -sLO "$COMMUNITY_URL/nvme-cli-2.9.1-r0.apk" || true
-curl -sLO "$MAIN_URL/libuuid-2.40.2-r1.apk" || true
-curl -sLO "$MAIN_URL/libblkid-2.40.2-r1.apk" || true
-curl -sLO "$MAIN_URL/libinih-58-r0.apk" || true
-curl -sLO "$MAIN_URL/device-mapper-libs-2.03.25-r0.apk" || true
-curl -sLO "$MAIN_URL/lvm2-libs-2.03.25-r0.apk" || true
+curl -sLO "$MAIN_URL/nvme-cli-2.9.1-r0.apk" || true
+curl -sLO "$MAIN_URL/libnvme-1.9-r0.apk" || true
+curl -sLO "$MAIN_URL/libuuid-2.40.1-r1.apk" || true
+curl -sLO "$MAIN_URL/libblkid-2.40.1-r1.apk" || true
+curl -sLO "$MAIN_URL/libsmartcols-2.40.1-r1.apk" || true
+curl -sLO "$MAIN_URL/libmount-2.40.1-r1.apk" || true
+curl -sLO "$MAIN_URL/libfdisk-2.40.1-r1.apk" || true
+curl -sLO "$MAIN_URL/lvm2-libs-2.03.23-r3.apk" || true
 curl -sLO "$MAIN_URL/json-c-0.17-r0.apk" || true
+# PCI and block device tools
+curl -sLO "$MAIN_URL/pciutils-3.12.0-r1.apk" || true
+curl -sLO "$MAIN_URL/lsblk-2.40.1-r1.apk" || true
 # Extract packages (except linux-lts which is handled specially)
 for pkg in *.apk; do
     [ -f "$pkg" ] && [ "$pkg" != "linux-lts-6.6.121-r0.apk" ] && tar xzf "$pkg" -C "$BUILD_DIR" 2>/dev/null || true
 done
-# Extract only IPMI modules from linux-lts
+# Extract IPMI, AHCI, and SATA modules from linux-lts
 if [ -f "linux-lts-6.6.121-r0.apk" ]; then
     tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/char/ipmi/*' 2>/dev/null || true
+    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/ata/*' 2>/dev/null || true
+    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/scsi/*' 2>/dev/null || true
     # Run depmod to update module dependencies
     depmod -b "$BUILD_DIR" 6.6.121-0-lts 2>/dev/null || true
 fi

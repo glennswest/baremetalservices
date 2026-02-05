@@ -411,6 +411,10 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
 	interfaces := getNetworkInterfaces()
 	asset := getAssetInfo()
 
+	// Get lspci and lsblk output for raw display
+	lspciOut, _ := runShell("lspci 2>/dev/null")
+	lsblkOut, _ := runShell("lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL 2>/dev/null")
+
 	// Get detailed disk info
 	var disks []DiskInfo
 	if diskListOut, err := runShell("lsblk -d -n -o NAME,TYPE"); err == nil {
@@ -456,6 +460,7 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
         .btn-danger { border-color: #ff4444; color: #ff4444; }
         .btn-danger:hover { background: #4a1525; }
         .serial { font-family: monospace; color: #aaa; font-size: 0.9em; }
+        pre { background: #0d1117; padding: 15px; border-radius: 6px; overflow-x: auto; font-size: 0.85em; color: #c9d1d9; line-height: 1.5; }
         footer { margin-top: 40px; text-align: center; color: #666; }
     </style>
 </head>
@@ -569,6 +574,17 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	html += `            </table>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>lspci</h2>
+                <pre>` + lspciOut + `</pre>
+            </div>
+            <div class="card">
+                <h2>lsblk</h2>
+                <pre>` + lsblkOut + `</pre>
+            </div>
         </div>
 
         <footer>
