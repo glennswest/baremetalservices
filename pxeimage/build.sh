@@ -58,6 +58,20 @@ curl -sLO "$MAIN_URL/libcrypto3-3.3.6-r0.apk" || true
 curl -sLO "$MAIN_URL/readline-8.2.10-r0.apk" || true
 curl -sLO "$MAIN_URL/libncursesw-6.4_p20240420-r2.apk" || true
 curl -sLO "$MAIN_URL/linux-lts-6.6.121-r0.apk" || true
+# Disk management tools
+curl -sLO "$MAIN_URL/hdparm-9.65-r1.apk" || true
+curl -sLO "$MAIN_URL/parted-3.6-r1.apk" || true
+curl -sLO "$MAIN_URL/e2fsprogs-1.47.1-r1.apk" || true
+curl -sLO "$MAIN_URL/e2fsprogs-libs-1.47.1-r1.apk" || true
+curl -sLO "$COMMUNITY_URL/xfsprogs-6.8.0-r0.apk" || true
+curl -sLO "$MAIN_URL/dosfstools-4.2-r2.apk" || true
+curl -sLO "$COMMUNITY_URL/nvme-cli-2.9.1-r0.apk" || true
+curl -sLO "$MAIN_URL/libuuid-2.40.2-r1.apk" || true
+curl -sLO "$MAIN_URL/libblkid-2.40.2-r1.apk" || true
+curl -sLO "$MAIN_URL/libinih-58-r0.apk" || true
+curl -sLO "$MAIN_URL/device-mapper-libs-2.03.25-r0.apk" || true
+curl -sLO "$MAIN_URL/lvm2-libs-2.03.25-r0.apk" || true
+curl -sLO "$MAIN_URL/json-c-0.17-r0.apk" || true
 # Extract packages (except linux-lts which is handled specially)
 for pkg in *.apk; do
     [ -f "$pkg" ] && [ "$pkg" != "linux-lts-6.6.121-r0.apk" ] && tar xzf "$pkg" -C "$BUILD_DIR" 2>/dev/null || true

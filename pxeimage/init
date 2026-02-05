@@ -52,29 +52,98 @@ exec >/dev/ttyS1 2>&1
 /bin/busybox chown -R 0:0 /root/.ssh 2>/dev/null || true
 
 /bin/busybox sleep 2
-# Bring up all interfaces and start DHCP (with background retry)
-for iface in $(/bin/busybox ls /sys/class/net/ | /bin/busybox grep -v lo); do
-    /bin/busybox echo "Configuring $iface..."
+
+# Function to configure interface with DHCP retries (runs in background for non-primary)
+configure_interface_bg() {
+    local iface=$1
+    local max_retries=60
+
+    /bin/busybox echo "[$iface] Starting background configuration..."
     /bin/busybox ip link set $iface up
-    # Disable auto-negotiation and set 10G for 10Gbps NICs (Mellanox mlx4, Intel ixgbe)
+    /bin/busybox sleep 1
+
+    # Set 10G mode for high-speed NICs
     DRIVER=$(/bin/busybox readlink /sys/class/net/$iface/device/driver 2>/dev/null | /bin/busybox xargs basename 2>/dev/null)
     if [ "$DRIVER" = "mlx4_core" ] || [ "$DRIVER" = "ixgbe" ]; then
-        /bin/busybox echo "  Setting $iface ($DRIVER): autoneg off, 10G"
+        /bin/busybox echo "[$iface] Setting 10G, autoneg off"
         /usr/sbin/ethtool -s $iface autoneg off speed 10000 duplex full 2>/dev/null || true
     fi
-    # Run udhcpc in background with retries
+
+    # Send broadcast ping to wake up switch port
+    /bin/busybox ping -c 3 -b 255.255.255.255 -I $iface 2>/dev/null || true
+    /bin/busybox sleep 1
+
+    # Retry DHCP until success
+    local retry=0
+    while [ $retry -lt $max_retries ]; do
+        retry=$((retry + 1))
+
+        # Check if already has IP
+        IP=$(/bin/busybox ip -4 addr show $iface 2>/dev/null | /bin/busybox grep "inet " | /bin/busybox awk '{print $2}' | /bin/busybox cut -d/ -f1)
+        if [ -n "$IP" ]; then
+            GATEWAY=$(/bin/busybox ip route | /bin/busybox grep default | /bin/busybox awk '{print $3}' | /bin/busybox head -1)
+            if [ -n "$GATEWAY" ] && /bin/busybox ping -c 1 -W 2 -I $iface $GATEWAY >/dev/null 2>&1; then
+                /bin/busybox echo "[$iface] OK: $IP (gateway reachable)"
+                return 0
+            fi
+        fi
+
+        # Try DHCP
+        [ -f /var/run/udhcpc.$iface.pid ] && /bin/busybox kill $(/bin/busybox cat /var/run/udhcpc.$iface.pid) 2>/dev/null
+        /bin/busybox udhcpc -i $iface -n -q -t 5 -T 3 2>/dev/null
+
+        # Check result
+        IP=$(/bin/busybox ip -4 addr show $iface 2>/dev/null | /bin/busybox grep "inet " | /bin/busybox awk '{print $2}' | /bin/busybox cut -d/ -f1)
+        if [ -n "$IP" ]; then
+            GATEWAY=$(/bin/busybox ip route | /bin/busybox grep default | /bin/busybox awk '{print $3}' | /bin/busybox head -1)
+            if [ -n "$GATEWAY" ] && /bin/busybox ping -c 1 -W 2 -I $iface $GATEWAY >/dev/null 2>&1; then
+                /bin/busybox echo "[$iface] OK: $IP (gateway reachable)"
+                return 0
+            else
+                /bin/busybox echo "[$iface] Got $IP but gateway unreachable, retrying..."
+                /bin/busybox ip addr flush dev $iface 2>/dev/null
+            fi
+        fi
+
+        /bin/busybox sleep 5
+    done
+
+    /bin/busybox echo "[$iface] DHCP failed, starting background daemon"
     /bin/busybox udhcpc -i $iface -b -R -p /var/run/udhcpc.$iface.pid 2>/dev/null &
+}
+
+# Configure eth0 first (primary interface, blocking) - usually already has IP from PXE
+/bin/busybox echo "Configuring eth0 (primary)..."
+/bin/busybox ip link set eth0 up 2>/dev/null
+DRIVER=$(/bin/busybox readlink /sys/class/net/eth0/device/driver 2>/dev/null | /bin/busybox xargs basename 2>/dev/null)
+if [ "$DRIVER" = "mlx4_core" ] || [ "$DRIVER" = "ixgbe" ]; then
+    /usr/sbin/ethtool -s eth0 autoneg off speed 10000 duplex full 2>/dev/null || true
+fi
+
+# Check if eth0 already has IP from PXE boot
+ETH0_IP=$(/bin/busybox ip -4 addr show eth0 2>/dev/null | /bin/busybox grep "inet " | /bin/busybox awk '{print $2}' | /bin/busybox cut -d/ -f1)
+if [ -z "$ETH0_IP" ]; then
+    /bin/busybox echo "eth0: No IP, trying DHCP..."
+    /bin/busybox udhcpc -i eth0 -n -q -t 10 -T 3 2>/dev/null
+    ETH0_IP=$(/bin/busybox ip -4 addr show eth0 2>/dev/null | /bin/busybox grep "inet " | /bin/busybox awk '{print $2}' | /bin/busybox cut -d/ -f1)
+fi
+
+if [ -n "$ETH0_IP" ]; then
+    /bin/busybox echo "eth0: $ETH0_IP"
+else
+    /bin/busybox echo "eth0: WARNING - no IP obtained"
+fi
+
+# Configure other interfaces in BACKGROUND (non-blocking)
+for iface in $(/bin/busybox ls /sys/class/net/ | /bin/busybox grep -v -E "^(lo|eth0)$"); do
+    configure_interface_bg $iface &
 done
-# Wait for network connectivity (gateway reachable)
-/bin/busybox echo "Waiting for network..."
-for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-    GATEWAY=$(/bin/busybox ip route | /bin/busybox grep default | /bin/busybox awk '{print $3}' | /bin/busybox head -1)
-    if [ -n "$GATEWAY" ] && /bin/busybox ping -c 1 -W 1 "$GATEWAY" >/dev/null 2>&1; then
-        /bin/busybox echo "Network ready (gateway: $GATEWAY)"
-        break
-    fi
-    /bin/busybox sleep 2
-done
+
+# Quick gateway check
+GATEWAY=$(/bin/busybox ip route | /bin/busybox grep default | /bin/busybox awk '{print $3}' | /bin/busybox head -1)
+if [ -n "$GATEWAY" ]; then
+    /bin/busybox echo "Gateway: $GATEWAY"
+fi
 
 # Sync time from NTP and set hardware clock
 /bin/busybox echo "Syncing time from NTP..."

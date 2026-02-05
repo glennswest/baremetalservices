@@ -43,11 +43,26 @@ type NetworkInterface struct {
 }
 
 type DiskInfo struct {
+	Name         string       `json:"name"`
+	Size         string       `json:"size"`
+	Type         string       `json:"type"`
+	Model        string       `json:"model"`
+	Serial       string       `json:"serial,omitempty"`
+	MountPoint   string       `json:"mountpoint,omitempty"`
+	Firmware     string       `json:"firmware,omitempty"`
+	Transport    string       `json:"transport,omitempty"`
+	RotationRate string       `json:"rotation_rate,omitempty"`
+	MediaType    string       `json:"media_type,omitempty"`
+	SmartHealth  string       `json:"smart_health,omitempty"`
+	Temperature  string       `json:"temperature,omitempty"`
+	PowerOnHours string       `json:"power_on_hours,omitempty"`
+	Partitions   []PartInfo   `json:"partitions,omitempty"`
+}
+
+type PartInfo struct {
 	Name       string `json:"name"`
 	Size       string `json:"size"`
-	Type       string `json:"type"`
-	Model      string `json:"model"`
-	Serial     string `json:"serial,omitempty"`
+	FSType     string `json:"fstype,omitempty"`
 	MountPoint string `json:"mountpoint,omitempty"`
 }
 
@@ -260,8 +275,12 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		"GET /macs":                   "MAC addresses for eth0, eth1, and IPMI",
 		"GET /memory":                 "Memory DIMM info (model, serial, speed)",
 		"GET /ipmi":                   "IPMI information",
-		"GET /disks":                  "List all disks with serial numbers",
+		"GET /disks":                  "List all disks with details (serial, firmware, SMART, type)",
+		"GET /disks/detail/{dev}":     "Detailed info for a specific disk",
 		"POST /ipmi/reset":            "Reset IPMI to ADMIN/ADMIN with full access and DHCP",
+		"POST /disks/partition/{dev}": "Create partition table (label=gpt|msdos, default gpt)",
+		"POST /disks/format/{dev}":    "Format partition (fstype=ext4|xfs|vfat, default ext4)",
+		"POST /disks/secure-erase/{dev}": "ATA Secure Erase / NVMe format (DESTRUCTIVE)",
 		"POST /disks/wipe":            "Wipe ALL disks (DESTRUCTIVE)",
 		"POST /disks/wipe/{dev}":      "Wipe specific disk (DESTRUCTIVE)",
 		"GET /firmware":               "List bundled firmware files",
@@ -392,9 +411,16 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
 	interfaces := getNetworkInterfaces()
 	asset := getAssetInfo()
 
-	// Get disks
-	disksOut, _ := runShell("lsblk -d -n -o NAME,SIZE,TYPE,MODEL | grep disk")
-	diskLines := strings.Split(strings.TrimSpace(disksOut), "\n")
+	// Get detailed disk info
+	var disks []DiskInfo
+	if diskListOut, err := runShell("lsblk -d -n -o NAME,TYPE"); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(diskListOut), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 && fields[1] == "disk" {
+				disks = append(disks, getDiskDetail(fields[0]))
+			}
+		}
+	}
 
 	html := fmt.Sprintf(`<!DOCTYPE html>
 <html>
@@ -419,6 +445,17 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
         .time { font-size: 1.5em; color: #00d4ff; }
         .mac { font-family: monospace; color: #ffaa00; }
         .ip { font-family: monospace; color: #00ff88; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 500; }
+        .badge-ssd { background: #1b4332; color: #52b788; }
+        .badge-hdd { background: #3d2b1f; color: #e09f3e; }
+        .badge-nvme { background: #1a1b4b; color: #818cf8; }
+        .badge-passed { background: #1b4332; color: #52b788; }
+        .badge-failed { background: #4a1525; color: #ff4444; }
+        .btn { display: inline-block; padding: 4px 12px; border-radius: 4px; border: 1px solid #444; background: #2a2a4a; color: #ccc; cursor: pointer; font-size: 0.8em; text-decoration: none; margin: 2px; }
+        .btn:hover { background: #3a3a5a; color: #fff; }
+        .btn-danger { border-color: #ff4444; color: #ff4444; }
+        .btn-danger:hover { background: #4a1525; }
+        .serial { font-family: monospace; color: #aaa; font-size: 0.9em; }
         footer { margin-top: 40px; text-align: center; color: #666; }
     </style>
 </head>
@@ -492,21 +529,43 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
         <div class="card">
             <h2>Disks</h2>
             <table>
-                <tr><th>Device</th><th>Size</th><th>Model</th></tr>
+                <tr><th>Device</th><th>Size</th><th>Type</th><th>Model</th><th>Serial</th><th>Firmware</th><th>Health</th><th>Temp</th><th>Hours</th><th>Actions</th></tr>
 `
 
-	for _, line := range diskLines {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			name := fields[0]
-			size := fields[1]
-			model := ""
-			if len(fields) > 3 {
-				model = strings.Join(fields[3:], " ")
-			}
-			html += fmt.Sprintf(`                <tr><td class="value">/dev/%s</td><td class="value">%s</td><td class="value">%s</td></tr>
-`, name, size, model)
+	for _, disk := range disks {
+		typeBadge := ""
+		switch disk.MediaType {
+		case "SSD":
+			typeBadge = `<span class="badge badge-ssd">SSD</span>`
+		case "HDD":
+			typeBadge = `<span class="badge badge-hdd">HDD</span>`
+		case "NVMe":
+			typeBadge = `<span class="badge badge-nvme">NVMe</span>`
+		default:
+			typeBadge = disk.MediaType
 		}
+		healthBadge := ""
+		if disk.SmartHealth == "PASSED" {
+			healthBadge = `<span class="badge badge-passed">PASSED</span>`
+		} else if disk.SmartHealth != "" {
+			healthBadge = fmt.Sprintf(`<span class="badge badge-failed">%s</span>`, disk.SmartHealth)
+		}
+		html += fmt.Sprintf(`                <tr>
+                    <td class="value">/dev/%s</td>
+                    <td class="value">%s</td>
+                    <td>%s</td>
+                    <td class="value">%s</td>
+                    <td class="serial">%s</td>
+                    <td class="value">%s</td>
+                    <td>%s</td>
+                    <td class="value">%s</td>
+                    <td class="value">%s</td>
+                    <td>
+                        <a class="btn btn-danger" href="javascript:void(0)" onclick="diskAction('wipe','%s')">Wipe</a>
+                        <a class="btn btn-danger" href="javascript:void(0)" onclick="diskAction('secure-erase','%s')">Secure Erase</a>
+                    </td>
+                </tr>
+`, disk.Name, disk.Size, typeBadge, disk.Model, disk.Serial, disk.Firmware, healthBadge, disk.Temperature, disk.PowerOnHours, disk.Name, disk.Name)
 	}
 
 	html += `            </table>
@@ -516,6 +575,15 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
             <p>Bare Metal Services API available at <a href="/api/" style="color: #00d4ff;">:8080</a></p>
         </footer>
     </div>
+    <script>
+    function diskAction(action, dev) {
+        if (!confirm('Are you sure you want to ' + action + ' /dev/' + dev + '? This is DESTRUCTIVE and cannot be undone.')) return;
+        fetch('http://' + location.hostname + ':8080/disks/' + action + '/' + dev, {method: 'POST'})
+            .then(r => r.json())
+            .then(d => { alert(JSON.stringify(d, null, 2)); location.reload(); })
+            .catch(e => alert('Error: ' + e));
+    }
+    </script>
 </body>
 </html>`
 
@@ -1024,34 +1092,381 @@ func handleBIOSUpdate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func getDiskDetail(name string) DiskInfo {
+	disk := DiskInfo{Name: name, Type: "disk"}
+
+	// Basic info from lsblk
+	if out, err := runShell(fmt.Sprintf("lsblk -d -n -o SIZE,MODEL /dev/%s 2>/dev/null", name)); err == nil {
+		fields := strings.Fields(strings.TrimSpace(out))
+		if len(fields) >= 1 {
+			disk.Size = fields[0]
+		}
+		if len(fields) > 1 {
+			disk.Model = strings.Join(fields[1:], " ")
+		}
+	}
+
+	// Partitions
+	if out, err := runShell(fmt.Sprintf("lsblk -n -o NAME,SIZE,FSTYPE,MOUNTPOINT /dev/%s 2>/dev/null", name)); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				pName := strings.TrimLeft(fields[0], "├─└─│ ")
+				if pName != name {
+					p := PartInfo{Name: pName, Size: fields[1]}
+					if len(fields) >= 3 {
+						p.FSType = fields[2]
+					}
+					if len(fields) >= 4 {
+						p.MountPoint = fields[3]
+					}
+					disk.Partitions = append(disk.Partitions, p)
+				}
+			}
+		}
+	}
+
+	// SMART info via smartctl
+	smartOut, smartErr := runShell(fmt.Sprintf("smartctl -i -H /dev/%s 2>/dev/null", name))
+	if smartErr == nil || smartOut != "" {
+		for _, line := range strings.Split(smartOut, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.Contains(line, ":") {
+				parts := strings.SplitN(line, ":", 2)
+				key := strings.TrimSpace(parts[0])
+				val := strings.TrimSpace(parts[1])
+				switch key {
+				case "Serial Number":
+					disk.Serial = val
+				case "Firmware Version":
+					disk.Firmware = val
+				case "Rotation Rate":
+					disk.RotationRate = val
+					if strings.Contains(val, "Solid State") {
+						disk.MediaType = "SSD"
+					} else if val != "" {
+						disk.MediaType = "HDD"
+					}
+				case "SATA Version is", "Transport protocol":
+					disk.Transport = val
+				case "SMART overall-health self-assessment test result":
+					disk.SmartHealth = val
+				}
+			}
+		}
+	}
+
+	// NVMe detection
+	if strings.HasPrefix(name, "nvme") {
+		disk.MediaType = "NVMe"
+		disk.Transport = "NVMe"
+		if nvmeOut, err := runShell(fmt.Sprintf("nvme id-ctrl /dev/%s 2>/dev/null", name)); err == nil {
+			for _, line := range strings.Split(nvmeOut, "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "fr ") || strings.HasPrefix(line, "fr\t") {
+					parts := strings.SplitN(line, ":", 2)
+					if len(parts) == 2 {
+						disk.Firmware = strings.TrimSpace(parts[1])
+					}
+				}
+				if strings.HasPrefix(line, "sn ") || strings.HasPrefix(line, "sn\t") {
+					parts := strings.SplitN(line, ":", 2)
+					if len(parts) == 2 && disk.Serial == "" {
+						disk.Serial = strings.TrimSpace(parts[1])
+					}
+				}
+				if strings.HasPrefix(line, "mn ") || strings.HasPrefix(line, "mn\t") {
+					parts := strings.SplitN(line, ":", 2)
+					if len(parts) == 2 && disk.Model == "" {
+						disk.Model = strings.TrimSpace(parts[1])
+					}
+				}
+			}
+		}
+		// NVMe SMART health
+		if nvmeSmart, err := runShell(fmt.Sprintf("nvme smart-log /dev/%s 2>/dev/null", name)); err == nil {
+			for _, line := range strings.Split(nvmeSmart, "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "temperature") {
+					parts := strings.SplitN(line, ":", 2)
+					if len(parts) == 2 {
+						disk.Temperature = strings.TrimSpace(parts[1])
+					}
+				}
+				if strings.HasPrefix(line, "power_on_hours") {
+					parts := strings.SplitN(line, ":", 2)
+					if len(parts) == 2 {
+						disk.PowerOnHours = strings.TrimSpace(parts[1])
+					}
+				}
+			}
+			disk.SmartHealth = "PASSED"
+		}
+	}
+
+	// Fallback serial from sysfs
+	if disk.Serial == "" {
+		if serial, err := runShell(fmt.Sprintf("cat /sys/block/%s/device/serial 2>/dev/null", name)); err == nil && strings.TrimSpace(serial) != "" {
+			disk.Serial = strings.TrimSpace(serial)
+		}
+	}
+
+	// Fallback media type from sysfs rotational flag
+	if disk.MediaType == "" {
+		if rot, err := runShell(fmt.Sprintf("cat /sys/block/%s/queue/rotational 2>/dev/null", name)); err == nil {
+			if strings.TrimSpace(rot) == "0" {
+				disk.MediaType = "SSD"
+			} else {
+				disk.MediaType = "HDD"
+			}
+		}
+	}
+
+	// Temperature from SMART attributes
+	if disk.Temperature == "" {
+		if tempOut, err := runShell(fmt.Sprintf("smartctl -A /dev/%s 2>/dev/null | grep -i 'temperature' | head -1", name)); err == nil {
+			fields := strings.Fields(strings.TrimSpace(tempOut))
+			if len(fields) >= 10 {
+				disk.Temperature = fields[9] + " C"
+			}
+		}
+	}
+
+	// Power-on hours from SMART attributes
+	if disk.PowerOnHours == "" {
+		if pohOut, err := runShell(fmt.Sprintf("smartctl -A /dev/%s 2>/dev/null | grep 'Power_On_Hours' | head -1", name)); err == nil {
+			fields := strings.Fields(strings.TrimSpace(pohOut))
+			if len(fields) >= 10 {
+				disk.PowerOnHours = fields[9]
+			}
+		}
+	}
+
+	return disk
+}
+
 func handleDisks(w http.ResponseWriter, r *http.Request) {
 	var disks []DiskInfo
 
-	out, err := runShell("lsblk -d -n -o NAME,SIZE,TYPE,MODEL")
+	out, err := runShell("lsblk -d -n -o NAME,TYPE")
 	if err == nil {
 		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 			fields := strings.Fields(line)
-			if len(fields) >= 3 && fields[2] == "disk" {
-				disk := DiskInfo{
-					Name: fields[0],
-					Size: fields[1],
-					Type: fields[2],
-				}
-				if len(fields) > 3 {
-					disk.Model = strings.Join(fields[3:], " ")
-				}
-				// Get serial number via smartctl or sysfs
-				if serial, err := runShell(fmt.Sprintf("smartctl -i /dev/%s 2>/dev/null | grep 'Serial Number' | awk '{print $3}'", disk.Name)); err == nil && strings.TrimSpace(serial) != "" {
-					disk.Serial = strings.TrimSpace(serial)
-				} else if serial, err := runShell(fmt.Sprintf("cat /sys/block/%s/device/serial 2>/dev/null", disk.Name)); err == nil && strings.TrimSpace(serial) != "" {
-					disk.Serial = strings.TrimSpace(serial)
-				}
-				disks = append(disks, disk)
+			if len(fields) >= 2 && fields[1] == "disk" {
+				disks = append(disks, getDiskDetail(fields[0]))
 			}
 		}
 	}
 
 	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: disks})
+}
+
+func handleDiskDetail(w http.ResponseWriter, r *http.Request) {
+	dev := strings.TrimPrefix(r.URL.Path, "/disks/detail/")
+	dev = strings.TrimPrefix(dev, "/dev/")
+	if dev == "" {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Missing device name"})
+		return
+	}
+	disk := getDiskDetail(dev)
+	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: disk})
+}
+
+func handleDiskPartition(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSON(w, http.StatusMethodNotAllowed, APIResponse{Status: "error", Error: "Method not allowed"})
+		return
+	}
+
+	dev := strings.TrimPrefix(r.URL.Path, "/disks/partition/")
+	dev = strings.TrimPrefix(dev, "/dev/")
+	if dev == "" {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Missing device name"})
+		return
+	}
+
+	r.ParseForm()
+	label := r.FormValue("label") // gpt or msdos, default gpt
+	if label == "" {
+		label = "gpt"
+	}
+
+	devPath := "/dev/" + dev
+	results := make(map[string]string)
+
+	// Create partition table
+	if out, err := runShell(fmt.Sprintf("parted -s %s mklabel %s 2>&1", devPath, label)); err != nil {
+		sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Failed to create partition table: " + strings.TrimSpace(out)})
+		return
+	}
+	results["label"] = label
+
+	// Create single partition spanning entire disk
+	if out, err := runShell(fmt.Sprintf("parted -s %s mkpart primary 0%% 100%% 2>&1", devPath)); err != nil {
+		sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Failed to create partition: " + strings.TrimSpace(out)})
+		return
+	}
+	results["partition"] = dev + "1"
+
+	sendJSON(w, http.StatusOK, APIResponse{
+		Status:  "ok",
+		Message: fmt.Sprintf("Created %s partition table on %s with single partition", label, devPath),
+		Data:    results,
+	})
+}
+
+func handleDiskFormat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSON(w, http.StatusMethodNotAllowed, APIResponse{Status: "error", Error: "Method not allowed"})
+		return
+	}
+
+	dev := strings.TrimPrefix(r.URL.Path, "/disks/format/")
+	dev = strings.TrimPrefix(dev, "/dev/")
+	if dev == "" {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Missing device/partition name (e.g., sda1)"})
+		return
+	}
+
+	r.ParseForm()
+	fstype := r.FormValue("fstype")
+	if fstype == "" {
+		fstype = "ext4"
+	}
+
+	devPath := "/dev/" + dev
+	results := make(map[string]string)
+
+	var mkfsCmd string
+	switch fstype {
+	case "ext4":
+		mkfsCmd = fmt.Sprintf("mkfs.ext4 -F %s 2>&1", devPath)
+	case "xfs":
+		mkfsCmd = fmt.Sprintf("mkfs.xfs -f %s 2>&1", devPath)
+	case "vfat", "fat32":
+		mkfsCmd = fmt.Sprintf("mkfs.vfat -F 32 %s 2>&1", devPath)
+	default:
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Unsupported filesystem: " + fstype + ". Use ext4, xfs, or vfat"})
+		return
+	}
+
+	if out, err := runShell(mkfsCmd); err != nil {
+		sendJSON(w, http.StatusInternalServerError, APIResponse{
+			Status: "error",
+			Error:  "Format failed: " + strings.TrimSpace(out),
+		})
+		return
+	}
+	results["device"] = devPath
+	results["filesystem"] = fstype
+
+	sendJSON(w, http.StatusOK, APIResponse{
+		Status:  "ok",
+		Message: fmt.Sprintf("Formatted %s as %s", devPath, fstype),
+		Data:    results,
+	})
+}
+
+func handleDiskSecureErase(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSON(w, http.StatusMethodNotAllowed, APIResponse{Status: "error", Error: "Method not allowed"})
+		return
+	}
+
+	dev := strings.TrimPrefix(r.URL.Path, "/disks/secure-erase/")
+	dev = strings.TrimPrefix(dev, "/dev/")
+	if dev == "" {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Missing device name"})
+		return
+	}
+
+	devPath := "/dev/" + dev
+	results := make(map[string]string)
+
+	// NVMe secure erase
+	if strings.HasPrefix(dev, "nvme") {
+		results["method"] = "nvme-format"
+		if out, err := runShell(fmt.Sprintf("nvme format %s --ses=1 2>&1", devPath)); err != nil {
+			results["error"] = strings.TrimSpace(out)
+			// Fallback to blkdiscard
+			results["method"] = "blkdiscard (nvme format failed)"
+			if out2, err2 := runShell(fmt.Sprintf("blkdiscard %s 2>&1", devPath)); err2 != nil {
+				results["blkdiscard_error"] = strings.TrimSpace(out2)
+				sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Secure erase failed", Data: results})
+				return
+			}
+		}
+		results["status"] = "success"
+		sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Message: "NVMe secure erase complete", Data: results})
+		return
+	}
+
+	// SATA ATA Secure Erase via hdparm
+	results["method"] = "ata-secure-erase"
+
+	// Check if drive supports secure erase
+	hdparmOut, _ := runShell(fmt.Sprintf("hdparm -I %s 2>/dev/null", devPath))
+	if !strings.Contains(hdparmOut, "supported: enhanced erase") && !strings.Contains(hdparmOut, "supported") {
+		// Check basic support
+		if !strings.Contains(hdparmOut, "Security") {
+			results["method"] = "blkdiscard+dd (no ATA secure erase support)"
+			// Fallback: blkdiscard then dd
+			if out, err := runShell(fmt.Sprintf("blkdiscard %s 2>&1", devPath)); err == nil {
+				results["blkdiscard"] = "success"
+			} else {
+				results["blkdiscard"] = strings.TrimSpace(out)
+			}
+			if out, err := runShell(fmt.Sprintf("dd if=/dev/zero of=%s bs=1M status=progress 2>&1", devPath)); err == nil {
+				results["dd_zero"] = "success"
+			} else {
+				results["dd_zero"] = strings.TrimSpace(out)
+			}
+			sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Message: "Disk wiped (ATA secure erase not supported)", Data: results})
+			return
+		}
+	}
+
+	// Check if drive is frozen
+	if strings.Contains(hdparmOut, "frozen") && !strings.Contains(hdparmOut, "not\tfrozen") && !strings.Contains(hdparmOut, "not frozen") {
+		results["error"] = "Drive is frozen. Try suspending and waking the system first."
+		results["hint"] = "Run: echo mem > /sys/power/state  (then wake the system)"
+		sendJSON(w, http.StatusConflict, APIResponse{Status: "error", Error: "Drive is frozen", Data: results})
+		return
+	}
+
+	// Set security password for erase
+	if out, err := runShell(fmt.Sprintf("hdparm --user-master u --security-set-pass Erase %s 2>&1", devPath)); err != nil {
+		results["set_password"] = strings.TrimSpace(out)
+		sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Failed to set security password", Data: results})
+		return
+	}
+	results["set_password"] = "success"
+
+	// Check for enhanced erase support
+	useEnhanced := strings.Contains(hdparmOut, "supported: enhanced erase")
+	if useEnhanced {
+		results["erase_type"] = "enhanced"
+		if out, err := runShell(fmt.Sprintf("hdparm --user-master u --security-erase-enhanced Erase %s 2>&1", devPath)); err != nil {
+			results["erase_error"] = strings.TrimSpace(out)
+			// Try standard erase as fallback
+			if out2, err2 := runShell(fmt.Sprintf("hdparm --user-master u --security-erase Erase %s 2>&1", devPath)); err2 != nil {
+				results["erase_fallback_error"] = strings.TrimSpace(out2)
+				sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Secure erase failed", Data: results})
+				return
+			}
+			results["erase_type"] = "standard (enhanced failed)"
+		}
+	} else {
+		results["erase_type"] = "standard"
+		if out, err := runShell(fmt.Sprintf("hdparm --user-master u --security-erase Erase %s 2>&1", devPath)); err != nil {
+			results["erase_error"] = strings.TrimSpace(out)
+			sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Secure erase failed", Data: results})
+			return
+		}
+	}
+
+	results["status"] = "success"
+	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Message: "ATA Secure Erase complete", Data: results})
 }
 
 func handleDiskWipe(w http.ResponseWriter, r *http.Request) {
@@ -1141,6 +1556,10 @@ func main() {
 	apiMux.HandleFunc("/ipmi", handleIPMI)
 	apiMux.HandleFunc("/ipmi/reset", handleIPMIReset)
 	apiMux.HandleFunc("/disks", handleDisks)
+	apiMux.HandleFunc("/disks/detail/", handleDiskDetail)
+	apiMux.HandleFunc("/disks/partition/", handleDiskPartition)
+	apiMux.HandleFunc("/disks/format/", handleDiskFormat)
+	apiMux.HandleFunc("/disks/secure-erase/", handleDiskSecureErase)
 	apiMux.HandleFunc("/disks/wipe", handleDiskWipe)
 	apiMux.HandleFunc("/disks/wipe/", handleDiskWipe)
 
