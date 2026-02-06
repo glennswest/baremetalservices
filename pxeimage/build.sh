@@ -45,7 +45,7 @@ curl -sLO "$MSTFLINT_URL/mstflint-4.26.0.1-r0.apk" || true
 curl -sLO "$MAIN_URL/libgcc-13.2.1_git20240309-r1.apk" || true
 curl -sLO "$MAIN_URL/libstdc++-13.2.1_git20240309-r1.apk" || true
 curl -sLO "$MAIN_URL/dmidecode-3.6-r0.apk" || true
-curl -sLO "$COMMUNITY_URL/smartmontools-7.4-r0.apk" || true
+curl -sLO "$MAIN_URL/smartmontools-7.4-r1.apk" || true
 curl -sLO "$COMMUNITY_URL/flashrom-1.3.0-r2.apk" || true
 curl -sLO "$MAIN_URL/ethtool-6.7-r0.apk" || true
 curl -sLO "$MAIN_URL/libmnl-1.0.5-r2.apk" || true
@@ -78,6 +78,7 @@ curl -sLO "$MAIN_URL/json-c-0.17-r0.apk" || true
 # PCI and block device tools
 curl -sLO "$MAIN_URL/pciutils-3.12.0-r1.apk" || true
 curl -sLO "$MAIN_URL/lsblk-2.40.1-r1.apk" || true
+curl -sLO "$MAIN_URL/hwdata-pci-0.382-r0.apk" || true
 # Extract packages (except linux-lts which is handled specially)
 for pkg in *.apk; do
     [ -f "$pkg" ] && [ "$pkg" != "linux-lts-6.6.121-r0.apk" ] && tar xzf "$pkg" -C "$BUILD_DIR" 2>/dev/null || true
