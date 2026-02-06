@@ -18,10 +18,10 @@ exec >/dev/ttyS1 2>&1
 /sbin/depmod -a 2>/dev/null
 
 # Load SATA/AHCI drivers
+/bin/busybox modprobe t10-pi 2>/dev/null
 /bin/busybox modprobe ahci 2>/dev/null
 /bin/busybox modprobe libata 2>/dev/null
 /bin/busybox modprobe sd_mod 2>/dev/null
-/bin/busybox modprobe sr_mod 2>/dev/null
 /bin/busybox modprobe ata_piix 2>/dev/null
 /bin/busybox sleep 2
 
