@@ -1,4 +1,4 @@
-.PHONY: build build-linux clean run pxeimage pxeimage-deploy deploy
+.PHONY: build build-linux clean run pxeimage pxeimage-deploy deploy iso
 
 BINARY=baremetalservices
 VERSION=1.0.0
@@ -31,3 +31,7 @@ pxeimage-deploy: pxeimage
 	@echo "Deploy complete."
 
 deploy: pxeimage-deploy
+
+iso: pxeimage
+	@echo "Building bootable ISO..."
+	./pxeimage/build-iso.sh
