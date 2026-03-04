@@ -1,6 +1,6 @@
 DEFAULT baremetalservices
-TIMEOUT 50
-PROMPT 1
+TIMEOUT 0
+PROMPT 0
 
 LABEL baremetalservices
     MENU LABEL Bare Metal Services (Linux)

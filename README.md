@@ -73,6 +73,7 @@ All API responses use the format:
 | POST | `/firmware/update` | Update Mellanox NIC firmware. Parameters: `device=<pci_addr>`, optional `url=<firmware_url>` |
 | GET | `/bios` | BIOS version and update availability |
 | POST | `/bios/update` | Update BIOS via flashrom (checks board compatibility, requires `force=true`) |
+| POST | `/bios/configure` | Configure BIOS settings (quick_boot, quiet_boot, disable PXE on specified NICs) |
 
 ### API Examples
 
@@ -103,6 +104,11 @@ curl -X POST http://server1:8080/ipmi/reset
 
 # Update Mellanox NIC firmware
 curl -X POST http://server1:8080/firmware/update -d "device=05:00.0"
+
+# Configure BIOS — disable PXE on Mellanox NICs, enable quick boot
+curl -X POST http://server1:8080/bios/configure \
+  -H 'Content-Type: application/json' \
+  -d '{"quick_boot": true, "quiet_boot": true, "disable_pxe_nics": ["mellanox"]}'
 ```
 
 ## Web UI
@@ -139,6 +145,7 @@ When SSH'd into a booted server (`ssh root@<ip>`), the following tools are avail
 | `dmidecode` | DMI/SMBIOS hardware info |
 | `mstflint` | Mellanox NIC firmware tools |
 | `flashrom` | BIOS flash programming |
+| `efibootmgr` | EFI boot entry management |
 
 ## PXE Boot Image
 

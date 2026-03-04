@@ -79,6 +79,10 @@ curl -sLO "$MAIN_URL/json-c-0.17-r0.apk" || true
 curl -sLO "$MAIN_URL/pciutils-3.12.0-r1.apk" || true
 curl -sLO "$MAIN_URL/lsblk-2.40.1-r1.apk" || true
 curl -sLO "$MAIN_URL/hwdata-pci-0.382-r0.apk" || true
+# EFI boot manager (for BIOS/PXE configuration)
+curl -sLO "$MAIN_URL/efibootmgr-18-r2.apk" || true
+curl -sLO "$MAIN_URL/efivar-libs-38-r0.apk" || true
+curl -sLO "$MAIN_URL/popt-1.19-r3.apk" || true
 # Extract packages (except linux-lts which is handled specially)
 for pkg in *.apk; do
     [ -f "$pkg" ] && [ "$pkg" != "linux-lts-6.6.121-r0.apk" ] && tar xzf "$pkg" -C "$BUILD_DIR" 2>/dev/null || true
@@ -91,6 +95,7 @@ if [ -f "linux-lts-6.6.121-r0.apk" ]; then
     tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/block/*' 2>/dev/null || true
     tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/lib/*' 2>/dev/null || true
     tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/cdrom/*' 2>/dev/null || true
+    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/firmware/efi/*' 2>/dev/null || true
     # Run depmod to update module dependencies
     depmod -b "$BUILD_DIR" 6.6.121-0-lts 2>/dev/null || true
 fi

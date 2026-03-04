@@ -287,6 +287,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		"POST /firmware/update":       "Update Mellanox NIC firmware (device=<pci_addr>, optional url=<firmware_url>)",
 		"GET /bios":                   "BIOS version and update availability",
 		"POST /bios/update":           "Update BIOS if needed (checks board compatibility first)",
+		"POST /bios/configure":        "Configure BIOS settings (quick_boot, quiet_boot, disable_pxe_nics)",
 	}
 
 	sendJSON(w, http.StatusOK, APIResponse{
@@ -965,6 +966,18 @@ type BIOSInfo struct {
 	UpdateMethod    string `json:"update_method,omitempty"`
 }
 
+type BIOSConfigureRequest struct {
+	QuickBoot      *bool    `json:"quick_boot"`
+	QuietBoot      *bool    `json:"quiet_boot"`
+	DisablePXENICs []string `json:"disable_pxe_nics"`
+}
+
+type BIOSConfigureResponse struct {
+	Changes        []string `json:"changes"`
+	Skipped        []string `json:"skipped,omitempty"`
+	RebootRequired bool     `json:"reboot_required"`
+}
+
 var biosDatabase = map[string]struct {
 	LatestVersion string
 	FileName      string
@@ -1105,6 +1118,211 @@ func handleBIOSUpdate(w http.ResponseWriter, r *http.Request) {
 		Status:  "ok",
 		Message: "BIOS updated successfully",
 		Data:    results,
+	})
+}
+
+func driverToVendor(driver string) string {
+	switch strings.ToLower(driver) {
+	case "mlx4_core", "mlx4_en", "mlx5_core":
+		return "mellanox"
+	case "ixgbe", "i40e", "ice", "igb", "e1000", "e1000e":
+		return "intel"
+	case "bnxt_en", "tg3":
+		return "broadcom"
+	case "r8169":
+		return "realtek"
+	case "virtio_net":
+		return "virtio"
+	}
+	return driver
+}
+
+func nicMatchesFilter(driver string, filters []string) bool {
+	driverLower := strings.ToLower(driver)
+	vendor := driverToVendor(driverLower)
+	for _, filter := range filters {
+		filterLower := strings.ToLower(filter)
+		if strings.Contains(driverLower, filterLower) || strings.Contains(vendor, filterLower) {
+			return true
+		}
+	}
+	return false
+}
+
+func handleBIOSConfigure(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSON(w, http.StatusMethodNotAllowed, APIResponse{Status: "error", Error: "Method not allowed"})
+		return
+	}
+
+	var req BIOSConfigureRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Invalid JSON: " + err.Error()})
+		return
+	}
+
+	var changes []string
+	var skipped []string
+	rebootRequired := false
+
+	// Handle quick_boot and quiet_boot via Supermicro SUM
+	if req.QuickBoot != nil || req.QuietBoot != nil {
+		sumAvailable := false
+		if _, err := runShell("which sum 2>/dev/null"); err == nil {
+			sumAvailable = true
+		}
+		if sumAvailable {
+			if req.QuickBoot != nil {
+				val := "Disabled"
+				if *req.QuickBoot {
+					val = "Enabled"
+				}
+				if _, err := runShell(fmt.Sprintf("sum -c ChangeBiosCfg --setting 'Quick Boot=%s' 2>&1", val)); err == nil {
+					changes = append(changes, fmt.Sprintf("quick_boot: %s", strings.ToLower(val)))
+					rebootRequired = true
+				} else {
+					changes = append(changes, "quick_boot: failed (SUM error)")
+				}
+			}
+			if req.QuietBoot != nil {
+				val := "Disabled"
+				if *req.QuietBoot {
+					val = "Enabled"
+				}
+				if _, err := runShell(fmt.Sprintf("sum -c ChangeBiosCfg --setting 'Quiet Boot=%s' 2>&1", val)); err == nil {
+					changes = append(changes, fmt.Sprintf("quiet_boot: %s", strings.ToLower(val)))
+					rebootRequired = true
+				} else {
+					changes = append(changes, "quiet_boot: failed (SUM error)")
+				}
+			}
+		} else {
+			if req.QuickBoot != nil {
+				skipped = append(skipped, "quick_boot: SUM not available, configure via BIOS setup or BMC web UI")
+			}
+			if req.QuietBoot != nil {
+				skipped = append(skipped, "quiet_boot: SUM not available, configure via BIOS setup or BMC web UI")
+			}
+		}
+	}
+
+	// Handle disable_pxe_nics via efibootmgr
+	if len(req.DisablePXENICs) > 0 {
+		interfaces := getNetworkInterfaces()
+
+		// Collect physical NICs (exclude loopback and virtual)
+		var physicalNICs []NetworkInterface
+		for _, iface := range interfaces {
+			if iface.Driver != "" && iface.Name != "lo" {
+				physicalNICs = append(physicalNICs, iface)
+			}
+		}
+
+		// Count how many NICs match the disable filters
+		matchCount := 0
+		for _, nic := range physicalNICs {
+			if nicMatchesFilter(nic.Driver, req.DisablePXENICs) {
+				matchCount++
+			}
+		}
+
+		if len(physicalNICs) > 0 && matchCount >= len(physicalNICs) {
+			// All NICs match — skip to preserve PXE capability
+			vendors := make(map[string]bool)
+			for _, nic := range physicalNICs {
+				vendors[driverToVendor(strings.ToLower(nic.Driver))] = true
+			}
+			vendorList := make([]string, 0, len(vendors))
+			for v := range vendors {
+				vendorList = append(vendorList, v)
+			}
+			skipped = append(skipped, fmt.Sprintf(
+				"PXE disable: all NICs are %s, skipping to preserve PXE capability",
+				strings.Join(vendorList, "/"),
+			))
+		} else {
+			// Safe to disable PXE on matching NICs
+			runShell("mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null")
+
+			efiOut, err := runShell("efibootmgr -v 2>/dev/null")
+			if err != nil {
+				skipped = append(skipped, "PXE disable: efibootmgr not available or system not EFI-booted")
+			} else {
+				// Build NIC MAC→driver map for cross-referencing
+				nicDrivers := make(map[string]string)
+				for _, iface := range interfaces {
+					if iface.MAC != "" && iface.Driver != "" {
+						nicDrivers[strings.ToLower(iface.MAC)] = strings.ToLower(iface.Driver)
+					}
+				}
+
+				for _, line := range strings.Split(efiOut, "\n") {
+					line = strings.TrimSpace(line)
+					if !strings.HasPrefix(line, "Boot") {
+						continue
+					}
+					lineLower := strings.ToLower(line)
+					if !strings.Contains(lineLower, "pxe") && !strings.Contains(lineLower, "network") {
+						continue
+					}
+					if len(line) < 8 {
+						continue
+					}
+					bootNum := line[4:8]
+
+					matched := false
+					for _, filter := range req.DisablePXENICs {
+						filterLower := strings.ToLower(filter)
+						// Match against EFI boot entry description
+						if strings.Contains(lineLower, filterLower) {
+							matched = true
+							break
+						}
+						// Match against NIC driver/vendor by MAC address
+						for mac, driver := range nicDrivers {
+							colons := mac
+							dashes := strings.ReplaceAll(mac, ":", "-")
+							if strings.Contains(lineLower, colons) || strings.Contains(lineLower, dashes) {
+								if strings.Contains(driver, filterLower) || strings.Contains(driverToVendor(driver), filterLower) {
+									matched = true
+									break
+								}
+							}
+						}
+						if matched {
+							break
+						}
+					}
+
+					if matched {
+						if _, err := runShell(fmt.Sprintf("efibootmgr -b %s -B 2>&1", bootNum)); err == nil {
+							desc := line
+							if idx := strings.Index(line, " "); idx > 0 {
+								desc = strings.TrimSpace(line[idx:])
+								desc = strings.TrimLeft(desc, "* ")
+							}
+							changes = append(changes, fmt.Sprintf("PXE disabled on: %s", desc))
+							rebootRequired = true
+						} else {
+							changes = append(changes, fmt.Sprintf("PXE disable failed for Boot%s", bootNum))
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if len(changes) == 0 && len(skipped) == 0 {
+		changes = append(changes, "no changes requested")
+	}
+
+	sendJSON(w, http.StatusOK, APIResponse{
+		Status: "ok",
+		Data: BIOSConfigureResponse{
+			Changes:        changes,
+			Skipped:        skipped,
+			RebootRequired: rebootRequired,
+		},
 	})
 }
 
@@ -1568,6 +1786,7 @@ func main() {
 	apiMux.HandleFunc("/firmware/update", handleFirmwareUpdate)
 	apiMux.HandleFunc("/bios", handleBIOS)
 	apiMux.HandleFunc("/bios/update", handleBIOSUpdate)
+	apiMux.HandleFunc("/bios/configure", handleBIOSConfigure)
 	apiMux.HandleFunc("/memory", handleMemory)
 	apiMux.HandleFunc("/ipmi", handleIPMI)
 	apiMux.HandleFunc("/ipmi/reset", handleIPMIReset)

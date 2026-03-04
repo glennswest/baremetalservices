@@ -9,6 +9,11 @@ export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 /bin/busybox mkdir -p /dev/pts /run /var/run /tmp
 /bin/busybox mount -t devpts devpts /dev/pts 2>/dev/null
 
+# Mount EFI variables if available (needed for efibootmgr)
+if [ -d /sys/firmware/efi ]; then
+    /bin/busybox mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null || true
+fi
+
 # Redirect all output to serial console
 exec >/dev/ttyS1 2>&1
 

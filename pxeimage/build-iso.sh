@@ -67,14 +67,8 @@ cp "$BOOT_DIR/initramfs" "$ISO_BUILD/initramfs"
 # Create ISOLINUX config
 cat > "$ISO_BUILD/isolinux/isolinux.cfg" <<'ISOLINUXCFG'
 DEFAULT baremetalservices
-TIMEOUT 50
-PROMPT 1
-
-SAY
-SAY =============================================
-SAY   Bare Metal Services - Boot ISO
-SAY =============================================
-SAY
+TIMEOUT 0
+PROMPT 0
 
 LABEL baremetalservices
     MENU LABEL Bare Metal Services
