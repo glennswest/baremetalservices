@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-03-04
+- **fix:** Fix GRUB EFI boot — search for ISO9660 volume by label so GRUB finds kernel/initramfs
 - **feat:** Add EFI boot support to ISO — dual BIOS (ISOLINUX) + EFI (GRUB) boot modes
 - **feat:** Build standalone GRUB x86_64-EFI binary with grub-mkstandalone
 - **feat:** Create FAT EFI boot image using mtools for El Torito alt-boot

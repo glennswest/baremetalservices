@@ -96,7 +96,11 @@ ISOLINUXCFG
 cat > "$ISO_BUILD/boot/grub/grub.cfg" <<'GRUBCFG'
 set timeout=0
 set default=0
+insmod all_video
+insmod search
+insmod search_label
 menuentry "Bare Metal Services" {
+    search --set=root --label BAREMETALSERVICES --no-floppy
     linux /vmlinuz console=tty0 console=ttyS1,115200n8 ip=dhcp iomem=relaxed
     initrd /initramfs
 }
