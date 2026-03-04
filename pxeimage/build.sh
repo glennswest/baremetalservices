@@ -87,11 +87,15 @@ curl -sLO "$MAIN_URL/popt-1.19-r3.apk" || true
 for pkg in *.apk; do
     [ -f "$pkg" ] && [ "$pkg" != "linux-lts-6.6.121-r0.apk" ] && tar xzf "$pkg" -C "$BUILD_DIR" 2>/dev/null || true
 done
-# Extract IPMI, AHCI, and SATA modules from linux-lts
+# Extract IPMI, AHCI, SATA, and SAS modules from linux-lts
 if [ -f "linux-lts-6.6.121-r0.apk" ]; then
     tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/char/ipmi/*' 2>/dev/null || true
     tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/ata/*' 2>/dev/null || true
+    # SCSI core + subdirectory drivers (mpt3sas, megaraid, etc)
     tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/scsi/*' 2>/dev/null || true
+    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/scsi/*/*' 2>/dev/null || true
+    # Fusion/MPT drivers (older kernel layout)
+    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/message/fusion/*' 2>/dev/null || true
     tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/block/*' 2>/dev/null || true
     tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/lib/*' 2>/dev/null || true
     tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/cdrom/*' 2>/dev/null || true

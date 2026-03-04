@@ -22,13 +22,23 @@ exec >/dev/ttyS1 2>&1
 # Build module dependencies first (required for all modprobe calls)
 /sbin/depmod -a 2>/dev/null
 
-# Load SATA/AHCI drivers
+# Load SATA/AHCI/SAS drivers
 /bin/busybox modprobe t10-pi 2>/dev/null
-/bin/busybox modprobe ahci 2>/dev/null
 /bin/busybox modprobe libata 2>/dev/null
-/bin/busybox modprobe sd_mod 2>/dev/null
+/bin/busybox modprobe libahci 2>/dev/null
+/bin/busybox modprobe ahci 2>/dev/null
 /bin/busybox modprobe ata_piix 2>/dev/null
-/bin/busybox sleep 2
+/bin/busybox modprobe ata_generic 2>/dev/null
+/bin/busybox modprobe sd_mod 2>/dev/null
+/bin/busybox modprobe sr_mod 2>/dev/null
+# SAS controllers (Supermicro/LSI/Broadcom)
+/bin/busybox modprobe scsi_transport_sas 2>/dev/null
+/bin/busybox modprobe mpt3sas 2>/dev/null
+/bin/busybox modprobe mpt2sas 2>/dev/null
+/bin/busybox modprobe megaraid_sas 2>/dev/null
+/bin/busybox modprobe hpsa 2>/dev/null
+# Wait for drives to appear
+/bin/busybox sleep 3
 
 # Load network drivers
 /bin/busybox modprobe e1000 2>/dev/null
