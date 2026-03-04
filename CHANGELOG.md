@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2026-03-04
+- **feat:** Add EFI boot support to ISO — dual BIOS (ISOLINUX) + EFI (GRUB) boot modes
+- **feat:** Build standalone GRUB x86_64-EFI binary with grub-mkstandalone
+- **feat:** Create FAT EFI boot image using mtools for El Torito alt-boot
+- **feat:** Hybrid MBR+GPT ISO for USB boot on both BIOS and EFI systems
 - **fix:** Add SAS controller drivers (mpt3sas, mpt2sas, megaraid_sas, hpsa) to init for SATA drives behind SAS HBAs
 - **fix:** Extract SCSI subdirectory modules (mpt3sas/, megaraid/) and fusion drivers in build
 - **fix:** Load libahci, ata_generic, sr_mod, scsi_transport_sas modules at boot
