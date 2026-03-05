@@ -14,8 +14,8 @@ if [ -d /sys/firmware/efi ]; then
     /bin/busybox mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null || true
 fi
 
-# Redirect all output to serial console
-exec >/dev/ttyS1 2>&1
+# Redirect all output to both serial consoles and main console
+exec >/dev/console 2>&1
 
 /bin/busybox echo "=== Bare Metal Services Booting ==="
 
@@ -223,11 +223,23 @@ fi
 /bin/busybox echo "    API: http://<ip>:8080/"
 /bin/busybox echo "============================================"
 
-# Start respawning shell on serial console
-(while true; do
-    /bin/busybox setsid /bin/busybox sh -c 'trap "" HUP; TERM=dumb PS1="# " exec sh' </dev/ttyS1 >/dev/ttyS1 2>&1
-    sleep 1
-done) &
+# Announce message for login prompts
+ANNOUNCE="
+============================================
+   Bare Metal Services
+   $(hostname) - $(ip -4 addr show eth0 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1)
+   API: http://$(ip -4 addr show eth0 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1):8080/
+============================================
+"
 
-# Start shell on main console
-exec /bin/busybox sh
+# Write /etc/issue for getty login prompt
+cat > /etc/issue <<ISSUE_EOF
+$ANNOUNCE
+ISSUE_EOF
+
+# Start getty login prompts on serial consoles
+/bin/busybox getty -L 115200 ttyS0 vt100 &
+/bin/busybox getty -L 115200 ttyS1 vt100 &
+
+# Start getty on main console
+exec /bin/busybox getty 0 console

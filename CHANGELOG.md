@@ -3,7 +3,8 @@
 ## [Unreleased]
 
 ### 2026-03-04
-- **fix:** Suppress kernel log spam on serial console (loglevel=1 quiet)
+- **fix:** Add announce banner and getty login prompts on all consoles (ttyS0, ttyS1, console)
+- **fix:** Output init messages to /dev/console instead of hardcoded ttyS1
 - **fix:** Add GRUB serial terminal output (unit 0+1) and kernel console on both ttyS0+ttyS1
 - **fix:** Fix GRUB EFI boot — search for ISO9660 volume by label so GRUB finds kernel/initramfs
 - **feat:** Add EFI boot support to ISO — dual BIOS (ISOLINUX) + EFI (GRUB) boot modes
