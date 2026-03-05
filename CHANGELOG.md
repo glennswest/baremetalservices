@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-03-04
+- **fix:** Add GRUB serial terminal output (unit 0+1) and kernel console on both ttyS0+ttyS1
 - **fix:** Fix GRUB EFI boot — search for ISO9660 volume by label so GRUB finds kernel/initramfs
 - **feat:** Add EFI boot support to ISO — dual BIOS (ISOLINUX) + EFI (GRUB) boot modes
 - **feat:** Build standalone GRUB x86_64-EFI binary with grub-mkstandalone

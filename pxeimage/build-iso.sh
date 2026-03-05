@@ -89,11 +89,15 @@ LABEL baremetalservices
     MENU LABEL Bare Metal Services
     KERNEL /vmlinuz
     INITRD /initramfs
-    APPEND console=tty0 console=ttyS1,115200n8 ip=dhcp iomem=relaxed
+    APPEND console=tty0 console=ttyS0,115200n8 console=ttyS1,115200n8 ip=dhcp iomem=relaxed
 ISOLINUXCFG
 
 # Create GRUB config (EFI boot) — same kernel params as ISOLINUX
 cat > "$ISO_BUILD/boot/grub/grub.cfg" <<'GRUBCFG'
+serial --unit=0 --speed=115200
+serial --unit=1 --speed=115200
+terminal_input serial console
+terminal_output serial console
 set timeout=0
 set default=0
 insmod all_video
@@ -101,7 +105,7 @@ insmod search
 insmod search_label
 menuentry "Bare Metal Services" {
     search --set=root --label BAREMETALSERVICES --no-floppy
-    linux /vmlinuz console=tty0 console=ttyS1,115200n8 ip=dhcp iomem=relaxed
+    linux /vmlinuz console=tty0 console=ttyS0,115200n8 console=ttyS1,115200n8 ip=dhcp iomem=relaxed
     initrd /initramfs
 }
 GRUBCFG
