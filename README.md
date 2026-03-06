@@ -181,7 +181,51 @@ make clean          # Remove binaries and initramfs
 make run            # Run locally
 make pxeimage       # Build PXE image (vmlinuz + initramfs)
 make deploy         # Build + deploy to PXE server
+make iso            # Build bootable ISO (BIOS + EFI)
 ```
+
+## Bootable ISO
+
+The ISO supports both **BIOS** (ISOLINUX) and **UEFI** (GRUB) boot modes, with hybrid MBR+GPT for USB boot.
+
+### Building the ISO
+
+The ISO must be built on a Linux x86_64 host (not cross-compiled on macOS). Use podman remote to build on server1:
+
+```bash
+# Build on server1 via podman remote
+podman -c server1 build --no-cache --file Containerfile.iso \
+  --tag baremetalservices-iso \
+  https://github.com/glennswest/baremetalservices.git
+
+# Extract ISO locally
+podman -c server1 create --name iso-extract baremetalservices-iso
+podman -c server1 cp iso-extract:/baremetalservices.iso ./baremetalservices.iso
+podman -c server1 rm iso-extract
+```
+
+### Deploying to iSCSI CDROM
+
+Upload the ISO to the mkube iSCSI CDROM server for network boot:
+
+```bash
+curl -X POST http://192.168.200.2:8082/api/v1/iscsi-cdroms/baremetalservices/upload \
+  -F "iso=@baremetalservices.iso"
+```
+
+The ISO is served at:
+- **iSCSI target**: `iqn.2000-02.com.mikrotik:file1`
+- **Portal**: `192.168.200.1:3260`
+
+### Boot Methods
+
+| Method | Description |
+|--------|-------------|
+| USB | `dd if=baremetalservices.iso of=/dev/sdX bs=1M status=progress` |
+| IPMI | Upload via virtual media / remote console |
+| VM | Attach as CD-ROM |
+| iSCSI | PXE chain: DHCP → iPXE → iSCSI sanboot |
+| PXE | Direct PXE boot (vmlinuz + initramfs via TFTP) |
 
 ## Hardware Support
 
