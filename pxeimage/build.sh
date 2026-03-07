@@ -96,24 +96,17 @@ curl -sLO "$MAIN_URL/popt-1.19-r3.apk" || true
 for pkg in *.apk; do
     [ -f "$pkg" ] && [ "$pkg" != "$LINUX_LTS_APK" ] && tar xzf "$pkg" -C "$BUILD_DIR" 2>/dev/null || true
 done
-# Extract IPMI, AHCI, SATA, and SAS modules from linux-lts
+# Extract ALL modules and vmlinuz from linux-lts APK
+# Since we use the kernel from this APK, all modules must come from it too
 if [ -f "$LINUX_LTS_APK" ]; then
-    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/char/ipmi/*' 2>/dev/null || true
-    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/ata/*' 2>/dev/null || true
-    # SCSI core + subdirectory drivers (mpt3sas, megaraid, etc)
-    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/scsi/*' 2>/dev/null || true
-    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/scsi/*/*' 2>/dev/null || true
-    # Fusion/MPT drivers (older kernel layout)
-    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/message/fusion/*' 2>/dev/null || true
-    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/block/*' 2>/dev/null || true
-    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/lib/*' 2>/dev/null || true
-    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/cdrom/*' 2>/dev/null || true
-    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/firmware/efi/*' 2>/dev/null || true
-    # Extract vmlinuz from APK so kernel and modules always match
+    # Remove old kernel modules from rootfs-base (different version)
+    rm -rf "$BUILD_DIR/lib/modules"
+    # Extract all modules and kernel
+    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/' 2>/dev/null || true
     tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'boot/vmlinuz-lts' 2>/dev/null || true
     if [ -f "$BUILD_DIR/boot/vmlinuz-lts" ]; then
         cp "$BUILD_DIR/boot/vmlinuz-lts" "$OUTPUT_DIR/vmlinuz"
-        echo "Updated vmlinuz from $LINUX_LTS_APK"
+        echo "Updated vmlinuz from $LINUX_LTS_APK (kernel $LINUX_LTS_KVER)"
     fi
     # Run depmod to update module dependencies
     depmod -b "$BUILD_DIR" "$LINUX_LTS_KVER" 2>/dev/null || true
