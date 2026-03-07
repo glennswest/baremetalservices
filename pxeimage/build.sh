@@ -57,7 +57,16 @@ curl -sLO "$COMMUNITY_URL/ipmitool-1.8.19-r1.apk" || true
 curl -sLO "$MAIN_URL/libcrypto3-3.3.6-r0.apk" || true
 curl -sLO "$MAIN_URL/readline-8.2.10-r0.apk" || true
 curl -sLO "$MAIN_URL/libncursesw-6.4_p20240420-r2.apk" || true
-curl -sLO "$MAIN_URL/linux-lts-6.6.121-r0.apk" || true
+# Discover latest linux-lts package version dynamically
+LINUX_LTS_APK=$(curl -sL "$MAIN_URL/" | grep -o 'linux-lts-[0-9][^"]*\.apk' | sort -V | tail -1)
+if [ -z "$LINUX_LTS_APK" ]; then
+    echo "ERROR: Could not discover linux-lts package version"
+    exit 1
+fi
+echo "Using kernel package: $LINUX_LTS_APK"
+LINUX_LTS_KVER=$(echo "$LINUX_LTS_APK" | sed 's/linux-lts-//;s/-r[0-9]*\.apk//' | sed 's/$/-0-lts/')
+echo "Kernel module version: $LINUX_LTS_KVER"
+curl -sLO "$MAIN_URL/$LINUX_LTS_APK" || true
 # Disk management tools
 curl -sLO "$MAIN_URL/hdparm-9.65-r2.apk" || true
 curl -sLO "$MAIN_URL/parted-3.6-r2.apk" || true
@@ -85,23 +94,32 @@ curl -sLO "$MAIN_URL/efivar-libs-38-r0.apk" || true
 curl -sLO "$MAIN_URL/popt-1.19-r3.apk" || true
 # Extract packages (except linux-lts which is handled specially)
 for pkg in *.apk; do
-    [ -f "$pkg" ] && [ "$pkg" != "linux-lts-6.6.121-r0.apk" ] && tar xzf "$pkg" -C "$BUILD_DIR" 2>/dev/null || true
+    [ -f "$pkg" ] && [ "$pkg" != "$LINUX_LTS_APK" ] && tar xzf "$pkg" -C "$BUILD_DIR" 2>/dev/null || true
 done
 # Extract IPMI, AHCI, SATA, and SAS modules from linux-lts
-if [ -f "linux-lts-6.6.121-r0.apk" ]; then
-    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/char/ipmi/*' 2>/dev/null || true
-    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/ata/*' 2>/dev/null || true
+if [ -f "$LINUX_LTS_APK" ]; then
+    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/char/ipmi/*' 2>/dev/null || true
+    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/ata/*' 2>/dev/null || true
     # SCSI core + subdirectory drivers (mpt3sas, megaraid, etc)
-    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/scsi/*' 2>/dev/null || true
-    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/scsi/*/*' 2>/dev/null || true
+    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/scsi/*' 2>/dev/null || true
+    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/scsi/*/*' 2>/dev/null || true
     # Fusion/MPT drivers (older kernel layout)
-    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/message/fusion/*' 2>/dev/null || true
-    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/block/*' 2>/dev/null || true
-    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/lib/*' 2>/dev/null || true
-    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/cdrom/*' 2>/dev/null || true
-    tar xzf linux-lts-6.6.121-r0.apk -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/firmware/efi/*' 2>/dev/null || true
+    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/message/fusion/*' 2>/dev/null || true
+    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/block/*' 2>/dev/null || true
+    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/lib/*' 2>/dev/null || true
+    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/cdrom/*' 2>/dev/null || true
+    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'lib/modules/*/kernel/drivers/firmware/efi/*' 2>/dev/null || true
+    # Extract vmlinuz from APK so kernel and modules always match
+    tar xzf "$LINUX_LTS_APK" -C "$BUILD_DIR" 'boot/vmlinuz-lts' 2>/dev/null || true
+    if [ -f "$BUILD_DIR/boot/vmlinuz-lts" ]; then
+        cp "$BUILD_DIR/boot/vmlinuz-lts" "$OUTPUT_DIR/vmlinuz"
+        echo "Updated vmlinuz from $LINUX_LTS_APK"
+    fi
     # Run depmod to update module dependencies
-    depmod -b "$BUILD_DIR" 6.6.121-0-lts 2>/dev/null || true
+    depmod -b "$BUILD_DIR" "$LINUX_LTS_KVER" 2>/dev/null || true
+else
+    echo "ERROR: linux-lts APK not found: $LINUX_LTS_APK"
+    exit 1
 fi
 cd "$PROJECT_DIR"
 rm -rf "$BUILD_DIR/tmp/apk" "$BUILD_DIR/.PKGINFO" "$BUILD_DIR/.SIGN."* 2>/dev/null || true
