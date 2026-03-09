@@ -2,11 +2,6 @@
 
 ## [Unreleased]
 
-### 2026-03-06
-- **fix:** Replace hardcoded linux-lts APK version with dynamic lookup from Alpine CDN index
-- **fix:** Extract vmlinuz from linux-lts APK so kernel and modules always match
-- **fix:** IPMI modules were missing because pinned kernel APK version was removed from CDN
-
 ### 2026-03-04
 - **fix:** Add announce banner and getty login prompts on all consoles (ttyS0, ttyS1, console)
 - **fix:** Output init messages to /dev/console instead of hardcoded ttyS1
