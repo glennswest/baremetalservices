@@ -8,6 +8,8 @@
 - **refactor:** Rename ISO to baremetalservicev2 for parallel testing alongside production baremetalservices
 - **chore:** Separate iSCSI CDROM deployment (baremetalservicev2) to avoid disrupting production
 - **fix:** Multi-stage Containerfile.iso — build Go natively (cross-compile), then x86_64 for syslinux/grub-efi/ISO tools
+- **fix:** IPMI LAN info parsing — parse output even if ipmitool returns non-zero exit code (some BMCs do this)
+- **fix:** Add BMC cold reset (`mc reset cold`) after IPMI credential/network reset so changes take effect immediately
 
 ### 2026-03-04
 - **fix:** Add announce banner and getty login prompts on all consoles (ttyS0, ttyS1, console)

@@ -661,25 +661,25 @@ func handleIPMI(w http.ResponseWriter, r *http.Request) {
 
 	info := IPMIInfo{}
 
-	if out, err := runShell("ipmitool lan print 1 2>/dev/null"); err == nil {
-		for _, line := range strings.Split(out, "\n") {
-			if strings.Contains(line, ":") {
-				parts := strings.SplitN(line, ":", 2)
-				key := strings.TrimSpace(parts[0])
-				val := strings.TrimSpace(parts[1])
+	// Parse lan print output even if ipmitool returns non-zero (some BMCs do this)
+	out, _ := runShell("ipmitool lan print 1 2>/dev/null")
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, ":") {
+			parts := strings.SplitN(line, ":", 2)
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
 
-				switch key {
-				case "IP Address":
-					info.IPAddress = val
-				case "MAC Address":
-					info.MACAddress = val
-				case "IP Address Source":
-					info.IPSource = val
-				case "Subnet Mask":
-					info.Subnet = val
-				case "Default Gateway IP":
-					info.Gateway = val
-				}
+			switch key {
+			case "IP Address Source":
+				info.IPSource = val
+			case "IP Address":
+				info.IPAddress = val
+			case "MAC Address":
+				info.MACAddress = val
+			case "Subnet Mask":
+				info.Subnet = val
+			case "Default Gateway IP":
+				info.Gateway = val
 			}
 		}
 	}
@@ -748,9 +748,16 @@ func handleIPMIReset(w http.ResponseWriter, r *http.Request) {
 		results["ipmi_ip"] = strings.TrimSpace(out)
 	}
 
+	// Cold reset BMC to apply all changes (credentials, network)
+	if _, err := runShell("ipmitool mc reset cold 2>/dev/null"); err == nil {
+		results["bmc_reset"] = "success"
+	} else {
+		results["bmc_reset"] = "failed (non-critical)"
+	}
+
 	sendJSON(w, http.StatusOK, APIResponse{
 		Status:  "ok",
-		Message: "IPMI reset to ADMIN/ADMIN with DHCP",
+		Message: "IPMI reset to ADMIN/ADMIN with DHCP (BMC cold reset applied)",
 		Data:    results,
 	})
 }
