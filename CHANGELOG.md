@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### 2026-03-09
+- **fix:** Dynamic linux-lts kernel version discovery from Alpine CDN (old 6.6.121-r0 was removed)
+- **fix:** Extract ALL kernel modules + vmlinuz from linux-lts APK so kernel and modules always match
+- **refactor:** Rename ISO to baremetalservicev2 for parallel testing alongside production baremetalservices
+- **chore:** Separate iSCSI CDROM deployment (baremetalservicev2) to avoid disrupting production
+
 ### 2026-03-04
 - **fix:** Add announce banner and getty login prompts on all consoles (ttyS0, ttyS1, console)
 - **fix:** Output init messages to /dev/console instead of hardcoded ttyS1

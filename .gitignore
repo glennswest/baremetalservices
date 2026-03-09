@@ -4,3 +4,4 @@ pxeimage/boot/initramfs
 pxeimage/rootfs/authorized_keys
 pxeimage/.syslinux-cache/
 baremetalservices.iso
+baremetalservicev2.iso

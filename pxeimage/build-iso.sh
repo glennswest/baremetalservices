@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BOOT_DIR="$SCRIPT_DIR/boot"
 ISO_BUILD="/tmp/baremetalservices-iso"
-ISO_OUTPUT="$PROJECT_DIR/baremetalservices.iso"
+ISO_OUTPUT="$PROJECT_DIR/baremetalservicev2.iso"
 SYSLINUX_CACHE="$SCRIPT_DIR/.syslinux-cache"
 
 echo "=== Building Bare Metal Services ISO (BIOS + EFI) ==="
@@ -104,7 +104,7 @@ insmod all_video
 insmod search
 insmod search_label
 menuentry "Bare Metal Services" {
-    search --set=root --label BAREMETALSERVICES --no-floppy
+    search --set=root --label BAREMETALSERVICEV2 --no-floppy
     linux /vmlinuz console=tty0 console=ttyS0,115200n8 console=ttyS1,115200n8 ip=dhcp iomem=relaxed
     initrd /initramfs
 }
@@ -138,7 +138,7 @@ XORRISO_ARGS=(
     -as mkisofs
     -o "$ISO_OUTPUT"
     -R -J                           # Rock Ridge + Joliet extensions
-    -V "BAREMETALSERVICES"          # Volume label
+    -V "BAREMETALSERVICEV2"         # Volume label
     # BIOS boot (ISOLINUX)
     -c isolinux/boot.cat            # Boot catalog
     -b isolinux/isolinux.bin        # Boot image
