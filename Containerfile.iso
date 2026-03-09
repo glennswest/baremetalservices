@@ -32,4 +32,4 @@ RUN bash pxeimage/build-iso.sh
 
 # Final stage — just the ISO
 FROM scratch
-COPY --from=isobuilder /work/baremetalservicev2.iso /baremetalservicev2.iso
+COPY --from=isobuilder /work/baremetalservices.iso /baremetalservices.iso
