@@ -1,19 +1,28 @@
-FROM docker.io/library/golang:1.24-alpine AS builder
+# Stage 1: Build Go binary natively (cross-compile for amd64)
+# This avoids QEMU emulation crashes in Go's runtime
+FROM docker.io/library/golang:1.24-alpine AS gobuilder
 
-RUN apk add --no-cache \
-    bash curl cpio gzip unzip findutils \
-    xorriso syslinux grub grub-efi mtools \
-    git openssh-client
+RUN apk add --no-cache git openssh-client
 
-# Clone the repo
 ARG REPO=https://github.com/glennswest/baremetalservices.git
 ARG BRANCH=main
 RUN git clone --depth 1 --branch ${BRANCH} ${REPO} /work
 
 WORKDIR /work
 
-# Build the Go binary for Linux
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o baremetalservices-linux .
+
+# Stage 2: Build ISO on x86_64 (syslinux/grub-efi require x86_64)
+FROM --platform=linux/amd64 docker.io/library/alpine:3.20 AS isobuilder
+
+RUN apk add --no-cache \
+    bash curl cpio gzip unzip findutils \
+    xorriso syslinux grub grub-efi mtools \
+    kmod
+
+COPY --from=gobuilder /work /work
+
+WORKDIR /work
 
 # Build the PXE image (initramfs)
 RUN bash pxeimage/build.sh
@@ -23,4 +32,4 @@ RUN bash pxeimage/build-iso.sh
 
 # Final stage — just the ISO
 FROM scratch
-COPY --from=builder /work/baremetalservicev2.iso /baremetalservicev2.iso
+COPY --from=isobuilder /work/baremetalservicev2.iso /baremetalservicev2.iso

@@ -7,6 +7,7 @@
 - **fix:** Extract ALL kernel modules + vmlinuz from linux-lts APK so kernel and modules always match
 - **refactor:** Rename ISO to baremetalservicev2 for parallel testing alongside production baremetalservices
 - **chore:** Separate iSCSI CDROM deployment (baremetalservicev2) to avoid disrupting production
+- **fix:** Multi-stage Containerfile.iso — build Go natively (cross-compile), then x86_64 for syslinux/grub-efi/ISO tools
 
 ### 2026-03-04
 - **fix:** Add announce banner and getty login prompts on all consoles (ttyS0, ttyS1, console)
