@@ -128,6 +128,24 @@ curl -sL "http://www.mellanox.com/downloads/firmware/fw-ConnectX3-rel-2_42_5000-
 # List downloaded firmware
 ls -la "$FIRMWARE_DIR" 2>/dev/null || true
 
+# Install Supermicro Update Manager (SUM)
+echo "Installing Supermicro Update Manager (SUM)..."
+if [ -d "$SCRIPT_DIR/tools/sum" ]; then
+    cp "$SCRIPT_DIR/tools/sum/sum" "$BUILD_DIR/usr/bin/sum"
+    chmod +x "$BUILD_DIR/usr/bin/sum"
+    mkdir -p "$BUILD_DIR/usr/share/sum"
+    cp -r "$SCRIPT_DIR/tools/sum/ExternalData" "$BUILD_DIR/usr/share/sum/"
+    echo "  Installed SUM binary and ExternalData"
+fi
+
+# Install mlxup (Mellanox firmware update tool)
+echo "Installing mlxup..."
+if [ -f "$SCRIPT_DIR/tools/mlxup" ]; then
+    cp "$SCRIPT_DIR/tools/mlxup" "$BUILD_DIR/usr/bin/mlxup"
+    chmod +x "$BUILD_DIR/usr/bin/mlxup"
+    echo "  Installed mlxup"
+fi
+
 # Copy BIOS files if available
 echo "Installing BIOS files..."
 mkdir -p "$BUILD_DIR/usr/share/firmware/bios"

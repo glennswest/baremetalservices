@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### 2026-04-02
+- **feat:** Add Supermicro Update Manager (SUM) v2.15.0 to ISO — binary + ExternalData installed to /usr/bin/sum and /usr/share/sum/
+- **feat:** Add mlxup (Mellanox firmware update tool) installation to build script
+
 ### 2026-03-09
 - **fix:** Dynamic linux-lts kernel version discovery from Alpine CDN (old 6.6.121-r0 was removed)
 - **fix:** Extract ALL kernel modules + vmlinuz from linux-lts APK so kernel and modules always match
