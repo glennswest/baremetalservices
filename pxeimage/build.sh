@@ -40,6 +40,36 @@ MAIN_URL="https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64"
 COMMUNITY_URL="https://dl-cdn.alpinelinux.org/alpine/v3.20/community/x86_64"
 mkdir -p "$BUILD_DIR/tmp/apk"
 cd "$BUILD_DIR/tmp/apk"
+
+# Fetch an APK by NAME without pinning its version.
+#
+# Alpine's CDN rotates package versions, so a pinned filename 404s the moment
+# the index moves — and with `|| true` that failure is silent. That is how the
+# image shipped nvme-cli without libnvme: `nvme` then dies at startup with
+# "Error loading shared library libnvme-mi.so.1" (issue #1). Discover the
+# current filename from the repo index instead, and make a miss LOUD.
+#
+#   fetch_apk <repo-url> <package-name> [required]
+fetch_apk() {
+    local repo="$1" name="$2" required="${3:-optional}" file
+    file=$(curl -sL "$repo/" | grep -o "${name}-[0-9][^\"]*\.apk" | grep -v -- '-doc-\|-dev-' | sort -V | tail -1)
+    if [ -z "$file" ]; then
+        if [ "$required" = "required" ]; then
+            echo "ERROR: package '$name' not found in $repo — refusing to build a broken image"
+            exit 1
+        fi
+        echo "WARNING: package '$name' not found in $repo (skipping)"
+        return 0
+    fi
+    if curl -sfLO "$repo/$file"; then
+        echo "  fetched $file"
+    elif [ "$required" = "required" ]; then
+        echo "ERROR: download of $file failed"; exit 1
+    else
+        echo "WARNING: download of $file failed (skipping)"
+    fi
+}
+
 # Download packages
 curl -sLO "$MSTFLINT_URL/mstflint-4.26.0.1-r0.apk" || true
 curl -sLO "$MAIN_URL/libgcc-13.2.1_git20240309-r1.apk" || true
@@ -74,8 +104,18 @@ curl -sLO "$MAIN_URL/e2fsprogs-1.47.0-r5.apk" || true
 curl -sLO "$MAIN_URL/e2fsprogs-libs-1.47.0-r5.apk" || true
 curl -sLO "$MAIN_URL/xfsprogs-6.8.0-r0.apk" || true
 curl -sLO "$MAIN_URL/dosfstools-4.2-r2.apk" || true
-curl -sLO "$MAIN_URL/nvme-cli-2.9.1-r0.apk" || true
-curl -sLO "$MAIN_URL/libnvme-1.9-r0.apk" || true
+# NVMe: nvme-cli is useless without libnvme + libnvme-mi, and both must match
+# the CDN's current version — pin nothing, and fail the build if either is
+# missing rather than shipping a binary that cannot start (issue #1).
+fetch_apk "$MAIN_URL" libnvme required
+fetch_apk "$MAIN_URL" nvme-cli required
+# Storage benchmarking — dd alone is queue-depth 1 and cannot produce an
+# IOPS/latency curve (issue #1).
+fetch_apk "$MAIN_URL" fio required
+fetch_apk "$MAIN_URL" libaio
+# iSCSI initiator, so the agent can consume iSCSI targets as well as NVMe-oF.
+fetch_apk "$MAIN_URL" open-iscsi
+fetch_apk "$MAIN_URL" libopeniscsiusr
 curl -sLO "$MAIN_URL/libuuid-2.40.1-r1.apk" || true
 curl -sLO "$MAIN_URL/libblkid-2.40.1-r1.apk" || true
 curl -sLO "$MAIN_URL/libeconf-0.6.3-r0.apk" || true

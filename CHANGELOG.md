@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### 2026-08-09
+- **fix:** PXE image no longer ships a broken `nvme-cli`. Pinned APK filenames 404 silently as Alpine's CDN rotates versions (`|| true` hid it), which is why `nvme` died with `Error loading shared library libnvme-mi.so.1` (#1). New `fetch_apk` helper discovers the current filename from the repo index and **fails the build** for packages marked required, instead of producing an image whose tools cannot start.
+- **feat:** Added `fio` (+`libaio`) so storage measurement is not limited to queue-depth-1 `dd`, and `open-iscsi` (+`libopeniscsiusr`) so the agent can consume iSCSI targets as well as NVMe-oF (#1).
+- **fix:** `init` now loads the fabric transports at boot — `nvme`, `nvme_core`, `nvme_fabrics`, `nvme_tcp`, plus `iscsi_tcp`/`libiscsi`/`scsi_transport_iscsi`. Previously `nvme_tcp` had to be modprobed by hand before any NVMe-oF target could be reached (#1).
+
 ### 2026-04-02
 - **feat:** Add Supermicro Update Manager (SUM) v2.15.0 to ISO — binary + ExternalData installed to /usr/bin/sum and /usr/share/sum/
 - **feat:** Add mlxup (Mellanox firmware update tool) installation to build script

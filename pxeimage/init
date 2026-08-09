@@ -51,6 +51,18 @@ exec >/dev/console 2>&1
 /bin/busybox modprobe mlx4_en 2>/dev/null
 /bin/busybox modprobe mlx5_core 2>/dev/null
 
+# Load NVMe + fabrics transports. nvme_tcp is what makes stormblock volumes
+# (and any NVMe-oF target) reachable; without it `nvme connect` fails and even
+# writing to /dev/nvme-fabrics is impossible (issue #1).
+/bin/busybox modprobe nvme 2>/dev/null
+/bin/busybox modprobe nvme_core 2>/dev/null
+/bin/busybox modprobe nvme_fabrics 2>/dev/null
+/bin/busybox modprobe nvme_tcp 2>/dev/null
+# iSCSI initiator transport
+/bin/busybox modprobe iscsi_tcp 2>/dev/null
+/bin/busybox modprobe libiscsi 2>/dev/null
+/bin/busybox modprobe scsi_transport_iscsi 2>/dev/null
+
 # Load IPMI drivers
 /bin/busybox modprobe ipmi_msghandler 2>/dev/null
 /bin/busybox modprobe ipmi_devintf 2>/dev/null
