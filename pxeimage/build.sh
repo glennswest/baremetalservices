@@ -110,12 +110,14 @@ curl -sLO "$MAIN_URL/dosfstools-4.2-r2.apk" || true
 fetch_apk "$MAIN_URL" libnvme required
 fetch_apk "$MAIN_URL" nvme-cli required
 # Storage benchmarking — dd alone is queue-depth 1 and cannot produce an
-# IOPS/latency curve (issue #1).
-fetch_apk "$MAIN_URL" fio required
+# IOPS/latency curve (issue #1). fio lives in the community repo, not main.
+fetch_apk "$COMMUNITY_URL" fio required
 fetch_apk "$MAIN_URL" libaio
 # iSCSI initiator, so the agent can consume iSCSI targets as well as NVMe-oF.
+# The runtime libs package is open-iscsi-libs (libopeniscsiusr does not exist
+# in v3.20 — it silently skipped as optional).
 fetch_apk "$MAIN_URL" open-iscsi
-fetch_apk "$MAIN_URL" libopeniscsiusr
+fetch_apk "$MAIN_URL" open-iscsi-libs
 curl -sLO "$MAIN_URL/libuuid-2.40.1-r1.apk" || true
 curl -sLO "$MAIN_URL/libblkid-2.40.1-r1.apk" || true
 curl -sLO "$MAIN_URL/libeconf-0.6.3-r0.apk" || true
