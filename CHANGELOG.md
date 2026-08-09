@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-08-09
+- **fix:** Fetch `libnvmemi` — `libnvme-mi.so.1` ships in its own Alpine package, not in `libnvme`, so `nvme` still failed to start with the exact issue #1 error even after the libnvme fix. Verified against a clean Alpine 3.20 container (#1).
 - **fix:** Fetch `fio` from Alpine's community repo (it is not in main — the required-package check correctly failed the build), and fetch `open-iscsi-libs` instead of the nonexistent `libopeniscsiusr` (which was silently skipped as optional) (#1).
 - **fix:** PXE image no longer ships a broken `nvme-cli`. Pinned APK filenames 404 silently as Alpine's CDN rotates versions (`|| true` hid it), which is why `nvme` died with `Error loading shared library libnvme-mi.so.1` (#1). New `fetch_apk` helper discovers the current filename from the repo index and **fails the build** for packages marked required, instead of producing an image whose tools cannot start.
 - **feat:** Added `fio` (+`libaio`) so storage measurement is not limited to queue-depth-1 `dd`, and `open-iscsi` (+`libopeniscsiusr`) so the agent can consume iSCSI targets as well as NVMe-oF (#1).

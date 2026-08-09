@@ -108,6 +108,9 @@ curl -sLO "$MAIN_URL/dosfstools-4.2-r2.apk" || true
 # the CDN's current version — pin nothing, and fail the build if either is
 # missing rather than shipping a binary that cannot start (issue #1).
 fetch_apk "$MAIN_URL" libnvme required
+# libnvme-mi.so.1 ships in a separate package, libnvmemi — without it nvme
+# still dies at startup exactly as in issue #1.
+fetch_apk "$MAIN_URL" libnvmemi required
 fetch_apk "$MAIN_URL" nvme-cli required
 # Storage benchmarking — dd alone is queue-depth 1 and cannot produce an
 # IOPS/latency curve (issue #1). fio lives in the community repo, not main.
