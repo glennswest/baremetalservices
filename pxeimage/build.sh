@@ -164,6 +164,10 @@ else
 fi
 cd "$PROJECT_DIR"
 rm -rf "$BUILD_DIR/tmp/apk" "$BUILD_DIR/.PKGINFO" "$BUILD_DIR/.SIGN."* 2>/dev/null || true
+# Built unprivileged (dev), read-only dirs and files from the packages stay
+# read-only to us too: make the tree writable by its owner so the installs
+# below can land. The image's ownership is set at cpio time (-R 0:0).
+chmod -R u+w "$BUILD_DIR"
 
 # Download Mellanox firmware files
 echo "Downloading Mellanox firmware..."
