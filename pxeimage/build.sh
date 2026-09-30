@@ -33,6 +33,7 @@ fi
 
 # Copy the binary
 echo "Installing baremetalservices binary..."
+rm -f "$BUILD_DIR/usr/bin/baremetalservices"
 cp "$PROJECT_DIR/baremetalservices-linux" "$BUILD_DIR/usr/bin/baremetalservices"
 chmod +x "$BUILD_DIR/usr/bin/baremetalservices"
 
@@ -184,6 +185,9 @@ ls -la "$FIRMWARE_DIR" 2>/dev/null || true
 # Install Supermicro Update Manager (SUM)
 echo "Installing Supermicro Update Manager (SUM)..."
 if [ -d "$SCRIPT_DIR/tools/sum" ]; then
+    # usr/bin/sum is busybox's `sum` applet, an absolute symlink: remove it
+    # rather than let cp follow it onto the build host's /bin/busybox.
+    rm -f "$BUILD_DIR/usr/bin/sum"
     cp "$SCRIPT_DIR/tools/sum/sum" "$BUILD_DIR/usr/bin/sum"
     chmod +x "$BUILD_DIR/usr/bin/sum"
     mkdir -p "$BUILD_DIR/usr/share/sum"
@@ -194,6 +198,7 @@ fi
 # Install mlxup (Mellanox firmware update tool)
 echo "Installing mlxup..."
 if [ -f "$SCRIPT_DIR/tools/mlxup" ]; then
+    rm -f "$BUILD_DIR/usr/bin/mlxup"
     cp "$SCRIPT_DIR/tools/mlxup" "$BUILD_DIR/usr/bin/mlxup"
     chmod +x "$BUILD_DIR/usr/bin/mlxup"
     echo "  Installed mlxup"
