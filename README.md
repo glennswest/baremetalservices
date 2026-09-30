@@ -74,6 +74,17 @@ All API responses use the format:
 | GET | `/bios` | BIOS version and update availability |
 | POST | `/bios/update` | Update BIOS via flashrom (checks board compatibility, requires `force=true`) |
 | POST | `/bios/configure` | Configure BIOS settings (quick_boot, quiet_boot, disable PXE on specified NICs) |
+| GET | `/bios/config` | The whole BIOS configuration file (`sum -c GetCurrentBiosCfg`), returned as-is (text, or XML on newer boards) |
+| POST | `/bios/config` | Apply a file from `GET /bios/config` as the request body (`sum -c ChangeBiosCfg`); takes effect on the next reboot |
+
+### Boot Order (UEFI)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/boot/order` | EFI boot entries (`num`, `name`, `active`, `path`), `order`, `boot_current`, `boot_next`, `timeout` (`efibootmgr -v`) |
+| POST | `/boot/order` | JSON `{"order": ["0003","0001"], "next": "0003"}` — either or both; every number must be an existing `BootXXXX` entry |
+
+Both need the agent to have been booted in UEFI mode (efivarfs); in legacy BIOS mode they answer 503.
 
 ### API Examples
 
@@ -104,6 +115,15 @@ curl -X POST http://server1:8080/ipmi/reset
 
 # Update Mellanox NIC firmware
 curl -X POST http://server1:8080/firmware/update -d "device=05:00.0"
+
+# Copy one blade's BIOS setup to another (reboot the target to apply)
+curl -s http://server1:8080/bios/config -o bios.cfg
+curl -X POST --data-binary @bios.cfg http://server2:8080/bios/config
+
+# Boot order: show it, then put Boot0003 first and boot Boot0001 once
+curl http://server1:8080/boot/order
+curl -X POST http://server1:8080/boot/order \
+  -H 'Content-Type: application/json' -d '{"order": ["0003","0001","0000"], "next": "0001"}'
 
 # Configure BIOS — disable PXE on Mellanox NICs, enable quick boot
 curl -X POST http://server1:8080/bios/configure \

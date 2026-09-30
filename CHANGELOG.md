@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### 2026-09-30
+- **feat:** `GET /bios/config` returns the whole `sum -c GetCurrentBiosCfg` file and `POST /bios/config` applies such a file with `sum -c ChangeBiosCfg`, so one blade's BIOS setup can be copied to the rest without ssh (#2).
+- **feat:** `GET /boot/order` returns the EFI boot entries, order, current and next boot (`efibootmgr -v`); `POST /boot/order` sets `{"order": [...], "next": "..."}`, validated against the entries that exist (#2).
+
 ### 2026-08-09
 - **fix:** Fetch `libnvmemi` — `libnvme-mi.so.1` ships in its own Alpine package, not in `libnvme`, so `nvme` still failed to start with the exact issue #1 error even after the libnvme fix. Verified against a clean Alpine 3.20 container (#1).
 - **fix:** Fetch `fio` from Alpine's community repo (it is not in main — the required-package check correctly failed the build), and fetch `open-iscsi-libs` instead of the nonexistent `libopeniscsiusr` (which was silently skipped as optional) (#1).

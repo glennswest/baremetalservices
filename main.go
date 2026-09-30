@@ -288,6 +288,10 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		"GET /bios":                   "BIOS version and update availability",
 		"POST /bios/update":           "Update BIOS if needed (checks board compatibility first)",
 		"POST /bios/configure":        "Configure BIOS settings (quick_boot, quiet_boot, disable_pxe_nics)",
+		"GET /bios/config":            "Whole BIOS configuration file (sum GetCurrentBiosCfg)",
+		"POST /bios/config":           "Apply a BIOS configuration file from GET /bios/config (sum ChangeBiosCfg; reboot to apply)",
+		"GET /boot/order":             "EFI boot entries and order (efibootmgr)",
+		"POST /boot/order":            "Set EFI boot order and/or next boot ({\"order\":[\"0003\",\"0001\"],\"next\":\"0003\"})",
 	}
 
 	sendJSON(w, http.StatusOK, APIResponse{
@@ -1794,6 +1798,8 @@ func main() {
 	apiMux.HandleFunc("/bios", handleBIOS)
 	apiMux.HandleFunc("/bios/update", handleBIOSUpdate)
 	apiMux.HandleFunc("/bios/configure", handleBIOSConfigure)
+	apiMux.HandleFunc("/bios/config", handleBIOSConfig)
+	apiMux.HandleFunc("/boot/order", handleBootOrder)
 	apiMux.HandleFunc("/memory", handleMemory)
 	apiMux.HandleFunc("/ipmi", handleIPMI)
 	apiMux.HandleFunc("/ipmi/reset", handleIPMIReset)
