@@ -3,8 +3,11 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="/tmp/baremetalservices-build"
-OUTPUT_DIR="$SCRIPT_DIR/boot"
+# Scratch and output are overridable so the golden build (deploy/build-golden.sh)
+# keeps everything on its own job drive: nothing in /tmp or ~ (#2).
+BUILD_DIR="${BUILD_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/bms-rootfs.XXXXXX")}"
+OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/boot}"
+mkdir -p "$OUTPUT_DIR"
 
 echo "=== Building Bare Metal Services PXE Image ==="
 
@@ -167,9 +170,10 @@ echo "Downloading Mellanox firmware..."
 mkdir -p "$BUILD_DIR/usr/share/firmware/mellanox"
 FIRMWARE_DIR="$BUILD_DIR/usr/share/firmware/mellanox"
 # ConnectX-3 firmware (MCX311A-XCAT, PSID MT_1170110023)
-curl -sL "http://www.mellanox.com/downloads/firmware/fw-ConnectX3-rel-2_42_5000-MCX311A-XCA_Ax-FlexBoot-3.4.752.bin.zip" -o /tmp/cx3-fw.zip 2>/dev/null && \
-    unzip -q -o /tmp/cx3-fw.zip -d "$FIRMWARE_DIR" 2>/dev/null && \
-    rm /tmp/cx3-fw.zip || echo "Warning: Could not download ConnectX-3 firmware"
+CX3_ZIP="$BUILD_DIR/tmp/cx3-fw.zip"
+curl -sL "http://www.mellanox.com/downloads/firmware/fw-ConnectX3-rel-2_42_5000-MCX311A-XCA_Ax-FlexBoot-3.4.752.bin.zip" -o "$CX3_ZIP" 2>/dev/null && \
+    unzip -q -o "$CX3_ZIP" -d "$FIRMWARE_DIR" 2>/dev/null || echo "Warning: Could not download ConnectX-3 firmware"
+rm -f "$CX3_ZIP"
 # List downloaded firmware
 ls -la "$FIRMWARE_DIR" 2>/dev/null || true
 
@@ -219,7 +223,11 @@ fi
 # Create initramfs
 echo "Creating initramfs..."
 cd "$BUILD_DIR"
-find . | cpio -H newc -o 2>/dev/null | gzip > "$OUTPUT_DIR/initramfs"
+# -R 0:0: every file is root's in the image, whoever ran the build (dev builds
+# as an unprivileged user).
+find . | cpio -H newc -R 0:0 -o 2>/dev/null | gzip > "$OUTPUT_DIR/initramfs"
+cd "$PROJECT_DIR"
+[ -n "${KEEP_BUILD_DIR:-}" ] || rm -rf "$BUILD_DIR"
 
 echo "=== Build complete ==="
 echo "Output files in: $OUTPUT_DIR"

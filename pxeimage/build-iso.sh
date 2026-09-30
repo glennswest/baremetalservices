@@ -3,10 +3,17 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-BOOT_DIR="$SCRIPT_DIR/boot"
-ISO_BUILD="/tmp/baremetalservices-iso"
-ISO_OUTPUT="$PROJECT_DIR/baremetalservices.iso"
-SYSLINUX_CACHE="$SCRIPT_DIR/.syslinux-cache"
+# Inputs, output and scratch are overridable so the golden build keeps
+# everything on its job drive (#2).
+BOOT_DIR="${BOOT_DIR:-$SCRIPT_DIR/boot}"
+ISO_OUTPUT="${ISO_OUTPUT:-$PROJECT_DIR/baremetalservices.iso}"
+SYSLINUX_CACHE="${SYSLINUX_CACHE:-$SCRIPT_DIR/.syslinux-cache}"
+ISO_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/bms-iso.XXXXXX")"
+TMPGRUB="$(mktemp -d "${TMPDIR:-/tmp}/bms-grub.XXXXXX")"
+trap 'rm -rf "$ISO_BUILD" "$TMPGRUB"' EXIT
+
+# Fedora ships grub2-mkstandalone, Alpine/Debian grub-mkstandalone.
+GRUB_MKSTANDALONE="$(command -v grub-mkstandalone || command -v grub2-mkstandalone || true)"
 
 echo "=== Building Bare Metal Services ISO (BIOS + EFI) ==="
 
@@ -24,7 +31,7 @@ if ! command -v xorriso >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! command -v grub-mkstandalone >/dev/null 2>&1; then
+if [ -z "$GRUB_MKSTANDALONE" ]; then
     echo "Error: grub-mkstandalone not found. Install it:"
     echo "  macOS:  brew install grub"
     echo "  Linux:  apt install grub-common grub-efi-amd64-bin"
@@ -39,13 +46,15 @@ if ! command -v mformat >/dev/null 2>&1; then
 fi
 
 # Download syslinux for isolinux.bin and isohdpfx.bin if not cached
-SYSLINUX_VER="6.04_pre1-r15"
-SYSLINUX_URL="https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/syslinux-${SYSLINUX_VER}.apk"
+# Found by name in the repo index: Alpine's CDN rotates package revisions (#1).
+SYSLINUX_REPO="https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64"
 if [ ! -f "$SYSLINUX_CACHE/isolinux.bin" ] || [ ! -f "$SYSLINUX_CACHE/isohdpfx.bin" ]; then
     echo "Downloading syslinux for ISOLINUX bootloader..."
     mkdir -p "$SYSLINUX_CACHE"
-    TMPAPK="/tmp/syslinux.apk"
-    curl -sL "$SYSLINUX_URL" -o "$TMPAPK"
+    TMPAPK="$TMPGRUB/syslinux.apk"
+    SYSLINUX_APK=$(curl -sL "$SYSLINUX_REPO/" | grep -o 'syslinux-[0-9][^"]*\.apk' | grep -v -- '-doc-\|-dev-' | sort -V | tail -1)
+    [ -n "$SYSLINUX_APK" ] || { echo "Error: syslinux not found in $SYSLINUX_REPO"; exit 1; }
+    curl -sfL "$SYSLINUX_REPO/$SYSLINUX_APK" -o "$TMPAPK"
     tar xzf "$TMPAPK" -C "$SYSLINUX_CACHE" 'usr/share/syslinux/isolinux.bin' 2>/dev/null || true
     tar xzf "$TMPAPK" -C "$SYSLINUX_CACHE" 'usr/share/syslinux/isohdpfx.bin' 2>/dev/null || true
     tar xzf "$TMPAPK" -C "$SYSLINUX_CACHE" 'usr/share/syslinux/ldlinux.c32' 2>/dev/null || true
@@ -65,8 +74,6 @@ if [ ! -f "$SYSLINUX_CACHE/isolinux.bin" ] || [ ! -f "$SYSLINUX_CACHE/isohdpfx.b
     echo "  isolinux.bin cached"
 fi
 
-# Clean and create ISO build directory
-rm -rf "$ISO_BUILD"
 mkdir -p "$ISO_BUILD/isolinux"
 mkdir -p "$ISO_BUILD/boot/grub"
 
@@ -112,9 +119,7 @@ GRUBCFG
 
 # Build standalone EFI binary with embedded grub.cfg
 echo "Building GRUB EFI bootloader..."
-TMPGRUB="/tmp/baremetalservices-grub"
-mkdir -p "$TMPGRUB"
-grub-mkstandalone \
+"$GRUB_MKSTANDALONE" \
     --format=x86_64-efi \
     --output="$TMPGRUB/bootx64.efi" \
     --locales="" \
@@ -129,7 +134,6 @@ mformat -i "$ISO_BUILD/efiboot.img" -F ::
 mmd -i "$ISO_BUILD/efiboot.img" ::/EFI
 mmd -i "$ISO_BUILD/efiboot.img" ::/EFI/BOOT
 mcopy -i "$ISO_BUILD/efiboot.img" "$TMPGRUB/bootx64.efi" ::/EFI/BOOT/BOOTX64.EFI
-rm -rf "$TMPGRUB"
 echo "  efiboot.img created (4MB FAT)"
 
 # Build the ISO with dual BIOS + EFI boot
@@ -163,9 +167,6 @@ fi
 XORRISO_ARGS+=("$ISO_BUILD")
 
 xorriso "${XORRISO_ARGS[@]}" 2>/dev/null
-
-# Clean up
-rm -rf "$ISO_BUILD"
 
 echo ""
 echo "=== ISO build complete (BIOS + EFI) ==="

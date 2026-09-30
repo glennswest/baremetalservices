@@ -5,3 +5,4 @@ pxeimage/rootfs/authorized_keys
 pxeimage/.syslinux-cache/
 baremetalservices.iso
 *.iso
+tmp/

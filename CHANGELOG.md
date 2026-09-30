@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2026-09-30
+- **feat:** `deploy/build-golden.sh baremetalservices|baremetalservices-maint OUT` — the stormcentral media-golden recipe, run unprivileged on dev.g8.lo. `baremetalservices` is the hybrid BIOS+UEFI ISO (BMC virtual CD, USB); `baremetalservices-maint` is a 4096-byte-block GPT disk whose ESP holds a unified kernel image as `\EFI\BOOT\BOOTX64.EFI`, the shape stormbootx claims over NVMe/TCP and chain-loads (#2).
+- **feat:** `pxeimage/build-disk.sh` builds that disk (systemd-stub UKI via objcopy, FAT at 4096-byte sectors, 4K GPT) (#2).
+- **fix:** Image builds use no `/tmp` or `~` paths (mktemp under `$TMPDIR`, output dirs overridable), use `grub2-mkstandalone` where `grub-mkstandalone` is absent (Fedora), find syslinux by name in the Alpine index instead of a pinned revision, and pack the initramfs with every file owned by root (`cpio -R 0:0`) whoever builds it (#2).
+- **test:** `test/run.sh` builds both goldens and boots them under QEMU (4K virtio disk under OVMF; ISO under OVMF and SeaBIOS), checking the agent answers `/health`, `/system` and `/boot/order` (#2).
 - **feat:** `GET /bios/config` returns the whole `sum -c GetCurrentBiosCfg` file and `POST /bios/config` applies such a file with `sum -c ChangeBiosCfg`, so one blade's BIOS setup can be copied to the rest without ssh (#2).
 - **feat:** `GET /boot/order` returns the EFI boot entries, order, current and next boot (`efibootmgr -v`); `POST /boot/order` sets `{"order": [...], "next": "..."}`, validated against the entries that exist (#2).
 
