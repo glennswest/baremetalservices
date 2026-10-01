@@ -12,14 +12,14 @@ const mib = int64(1) << 20
 func TestZeroRegions(t *testing.T) {
 	disk := 2000 * 1024 * mib // ST2000DM008-sized
 	parts := []partRange{
-		{Name: "sda1", Start: 1 * mib, Size: 512 * mib},        // inside the head edge, shorter than 1 GiB
+		{Name: "sda1", Start: 1 * mib, Size: 512 * mib},          // inside the head edge, shorter than 1 GiB
 		{Name: "sda2", Start: 513 * mib, Size: 116 * 1024 * mib}, // 1 GiB from 513 MiB
-		{Name: "sda3", Start: disk - 10*mib, Size: 10 * mib},  // inside the tail edge
+		{Name: "sda3", Start: disk - 10*mib, Size: 10 * mib},     // inside the tail edge
 	}
 	got := zeroRegions(disk, parts)
 	want := []byteRange{
-		{0, 513*mib + 1024*mib},            // head edge + sda1 + sda2's head, merged
-		{disk - 64*mib, 64 * mib},          // tail edge, sda3 inside it
+		{0, 513*mib + 1024*mib},   // head edge + sda1 + sda2's head, merged
+		{disk - 64*mib, 64 * mib}, // tail edge, sda3 inside it
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("zeroRegions = %v, want %v", got, want)
