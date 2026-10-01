@@ -68,7 +68,12 @@ console() { sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/\r//g' "$W/serial.log" "$
 fail() { say "FAIL: $*"; say "--- serial console (last 60 lines) ---"; console | tail -60; exit 1; }
 
 [ "$ok" = yes ] || fail "the agent never answered /health within ${BOOT_TIMEOUT}s"
-console | grep -q '=== Bare Metal Services Booting ===' || fail "init banner not on the serial console"
+for ((i = 0; i < 30; i++)); do
+    console | grep -q '=== Bare Metal Services Booting ===' && break
+    sleep 1
+done
+console | grep -q '=== Bare Metal Services Booting ===' || { ls -l "$W"; fail "init banner not on the serial console"; }
+say "console: $(console | grep -c .) lines; $(console | grep -m1 'Linux version' | cut -c1-80)"
 curl -sf --max-time 30 "http://127.0.0.1:$PORT/system" | grep -q '"status":"ok"' || fail "/system"
 say "/system ok: $(curl -sf --max-time 30 "http://127.0.0.1:$PORT/system" | grep -o '"kernel":"[^"]*"')"
 if [ "$MODE" != bios ]; then
