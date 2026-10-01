@@ -75,8 +75,8 @@ reflash its firmware. `GET /` lists every endpoint. All API responses use the fo
 | GET | `/disks/detail/{dev}` | Detailed info for a specific disk (e.g., `/disks/detail/sda`) |
 | POST | `/disks/partition/{dev}` | Create partition table. Parameters: `label=gpt\|msdos` (default: gpt) |
 | POST | `/disks/format/{dev}` | Format a partition. Parameters: `fstype=ext4\|xfs\|vfat` (default: ext4) |
-| POST | `/disks/wipe` | Wipe ALL disks (blkdiscard/dd + wipefs) |
-| POST | `/disks/wipe/{dev}` | Wipe a specific disk |
+| POST | `/disks/wipe` | Wipe and verify ALL disks (see below) |
+| POST | `/disks/wipe/{dev}` | Wipe and verify one whole disk (see below) |
 | POST | `/disks/secure-erase/{dev}` | ATA Secure Erase (hdparm) for SATA, nvme format for NVMe |
 
 ### Firmware & BIOS
@@ -144,6 +144,25 @@ curl -X POST http://server1:8080/bios/configure \
   -H 'Content-Type: application/json' \
   -d '{"quick_boot": true, "quiet_boot": true, "disable_pxe_nics": ["mellanox"]}'
 ```
+
+A wipe (`POST /disks/wipe[/{dev}]`) refuses a disk that is mounted, used as
+swap or held by device-mapper/md. Otherwise, for each disk:
+
+1. `wipefs -a` on every partition, then on the disk
+2. `sgdisk --zap-all` (GPT, its backup, the protective MBR)
+3. `blkdiscard`, only on a non-rotational disk (`queue/rotational` = 0); on a
+   spinning disk it does nothing. "Not supported" is noted, not a failure
+4. zero the first and last 64 MiB of the disk and the first 1 GiB of every old
+   partition
+5. re-read the partition table, then verify: no partitions left, `wipefs`
+   finds no signature, and the first and last MiB read back zero
+
+`status` is `ok` only when every disk verified. Otherwise the request
+returns HTTP 500 with `status: error`. In both cases `data` maps each device
+to its steps (`step`, `ok`, `output`), `rotational`, `partitions_before` and
+`verified`. A wipe removes the partition tables and filesystems; it does not
+overwrite all the data (that is `/disks/secure-erase/{dev}`).
+
 
 ## Web UI
 

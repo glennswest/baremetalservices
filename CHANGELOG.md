@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### 2026-10-01
+- **fix:** `POST /disks/wipe[/{dev}]` reported `ok` on a spinning disk and wiped nothing: `blkdiscard` is a no-op on an HDD and `wipefs` was not in the image. A wipe is now: refuse a mounted/swap/held disk; `wipefs -a` every partition and the disk; `sgdisk --zap-all`; `blkdiscard` only when non-rotational; zero the first and last 64 MiB and the first 1 GiB of every old partition; re-read the partition table; verify (no partitions, no signatures, head and tail read zero). Any failed step or unverified disk returns HTTP 500 with the per-step results (`wipe.go`, #15).
+- **fix:** The image now carries `wipefs` and `sgdisk` (required packages) (#15).
+- **test:** Unit tests for the wipe's zero regions and sysfs partition/holder reading; the QEMU boot test partitions, formats and wipes a scratch HDD and SSD through the API and checks the images on the host (#15).
 - **fix:** `sum` (Supermicro Update Manager) did not run on the image: it is a glibc binary, and the musl image's `/lib64/ld-linux-x86-64.so.2` was Alpine's `gcompat` shim (`Error relocating /usr/bin/sum: mallopt: symbol not found`). The image now carries Debian trixie's glibc runtime (`libc6`, `libgcc-s1`, `zlib1g`, `libstdc++6`, found by name in the Debian index) in `/usr/lib/x86_64-linux-gnu` with `/lib64/ld-linux-x86-64.so.2` pointing at its loader, so `sum` and `mlxup` run unmodified; musl programs never look there. `sum` moves to `/opt/sum` with its `ExternalData` beside it (`/usr/bin/sum` links to it). The build fails if `sum -v` does not run, or `mlxup` does not link, against the image's glibc (#14).
 - **test:** The QEMU boot test gives the guest an emulated BMC (`ipmi-bmc-sim` + KCS) and checks `GET /bios/config` shows `sum` ran (#14).
 

@@ -281,8 +281,8 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		"POST /disks/partition/{dev}": "Create partition table (label=gpt|msdos, default gpt)",
 		"POST /disks/format/{dev}":    "Format partition (fstype=ext4|xfs|vfat, default ext4)",
 		"POST /disks/secure-erase/{dev}": "ATA Secure Erase / NVMe format (DESTRUCTIVE)",
-		"POST /disks/wipe":            "Wipe ALL disks (DESTRUCTIVE)",
-		"POST /disks/wipe/{dev}":      "Wipe specific disk (DESTRUCTIVE)",
+		"POST /disks/wipe":            "Wipe and verify ALL disks (DESTRUCTIVE)",
+		"POST /disks/wipe/{dev}":      "Wipe and verify one disk (DESTRUCTIVE)",
 		"GET /firmware":               "List bundled firmware files",
 		"POST /firmware/update":       "Update Mellanox NIC firmware (device=<pci_addr>, optional url=<firmware_url>)",
 		"GET /bios":                   "BIOS version and update availability",
@@ -1712,71 +1712,6 @@ func handleDiskSecureErase(w http.ResponseWriter, r *http.Request) {
 
 	results["status"] = "success"
 	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Message: "ATA Secure Erase complete", Data: results})
-}
-
-func handleDiskWipe(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		sendJSON(w, http.StatusMethodNotAllowed, APIResponse{Status: "error", Error: "Method not allowed"})
-		return
-	}
-
-	// Check if specific disk requested
-	path := strings.TrimPrefix(r.URL.Path, "/disks/wipe")
-	path = strings.TrimPrefix(path, "/")
-
-	var disksToWipe []string
-
-	if path != "" {
-		// Wipe specific disk
-		if !strings.HasPrefix(path, "/dev/") {
-			path = "/dev/" + path
-		}
-		disksToWipe = append(disksToWipe, path)
-	} else {
-		// Wipe all disks
-		out, err := runShell("lsblk -d -n -o NAME,TYPE | grep disk | awk '{print $1}'")
-		if err == nil {
-			for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
-				if name != "" {
-					disksToWipe = append(disksToWipe, "/dev/"+name)
-				}
-			}
-		}
-	}
-
-	results := make(map[string]interface{})
-
-	for _, disk := range disksToWipe {
-		diskResult := make(map[string]string)
-
-		// Try blkdiscard first (fast for SSDs), fall back to dd
-		if out, err := runShell(fmt.Sprintf("blkdiscard %s 2>&1", disk)); err == nil {
-			diskResult["blkdiscard"] = "success"
-		} else {
-			diskResult["blkdiscard"] = out
-			// Fall back to zeroing first 100MB
-			if out2, err2 := runShell(fmt.Sprintf("dd if=/dev/zero of=%s bs=1M count=100 2>&1", disk)); err2 == nil {
-				diskResult["dd_zero"] = "success"
-			} else {
-				diskResult["dd_zero"] = out2
-			}
-		}
-
-		// Wipe partition table
-		if out, err := runShell(fmt.Sprintf("wipefs -a %s 2>&1", disk)); err == nil {
-			diskResult["wipefs"] = "success"
-		} else {
-			diskResult["wipefs"] = out
-		}
-
-		results[disk] = diskResult
-	}
-
-	sendJSON(w, http.StatusOK, APIResponse{
-		Status:  "ok",
-		Message: fmt.Sprintf("Wiped %d disk(s)", len(disksToWipe)),
-		Data:    results,
-	})
 }
 
 func main() {

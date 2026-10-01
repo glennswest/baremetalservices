@@ -13,6 +13,11 @@
 # KCS interface), and GET /bios/config must show that sum ran on the image's
 # glibc (#14): QEMU's board is not a Supermicro one, so sum itself refuses,
 # but never with a loader error.
+# Two scratch AHCI disks, an HDD (rotation_rate 7200) and an SSD (rotation_rate
+# 1, discard on), are partitioned and formatted through the API and then
+# wiped with POST /disks/wipe/{dev} (#15): the wipe must say it verified, the
+# partitions must be gone, and on the host both images must read zero at the
+# head and the tail.
 set -uo pipefail
 
 MODE="${1:?usage: boot-ovmf.sh disk|iso|bios IMAGE}"
@@ -30,6 +35,12 @@ trap cleanup EXIT
 ACCEL=tcg; [[ -w /dev/kvm ]] && ACCEL=kvm
 PORT=$(( 20000 + RANDOM % 20000 ))
 cp "$IMAGE" "$W/image"     # the guest may write to its disk; never to the golden
+
+for d in hdd ssd; do truncate -s 4G "$W/$d.img"; done
+SCRATCH=(-drive if=none,id=hdd,format=raw,file="$W/hdd.img"
+         -device ide-hd,drive=hdd,serial=WIPEHDD,rotation_rate=7200
+         -drive if=none,id=ssd,format=raw,discard=unmap,file="$W/ssd.img"
+         -device ide-hd,drive=ssd,serial=WIPESSD,rotation_rate=1)
 
 FW=()
 case "$MODE" in
@@ -51,7 +62,7 @@ esac
 
 say "booting $(basename "$IMAGE") ($(du -h "$IMAGE" | cut -f1), $ACCEL), API on :$PORT"
 qemu-system-x86_64 -machine q35,accel=$ACCEL -cpu max -smp 2 -m 4096 -display none -no-reboot \
-    "${FW[@]}" "${DISK[@]}" \
+    "${FW[@]}" "${DISK[@]}" "${SCRATCH[@]}" \
     -device ipmi-bmc-sim,id=bmc0 -device isa-ipmi-kcs,bmc=bmc0 \
     -netdev user,id=n0,hostfwd=tcp:127.0.0.1:$PORT-:8080 -device e1000e,netdev=n0 \
     -serial file:"$W/serial.log" -serial file:"$W/console.log" &
@@ -91,4 +102,40 @@ if grep -Eq 'Error relocating|symbol not found|error while loading shared librar
     fail "/bios/config: sum did not run: $bc"
 fi
 say "/bios/config: sum ran: $(grep -o 'Supermicro Update Manager[^\]*' <<<"$bc" | head -1); $(grep -o 'Error message:[^"]*' <<<"$bc" | sed 's/\\[nt]/ /g' | tr -s ' ' | cut -c1-120)"
+
+# Disk wipe (#15).
+api() { curl -s --max-time 600 "$@"; }
+json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
+disks=$(api "http://127.0.0.1:$PORT/disks")
+for kind in hdd ssd; do
+    serial=WIPE${kind^^}
+    name=$(json "next((x['name'] for x in d['data'] if x.get('serial')=='$serial'), '')" <<<"$disks")
+    [ -n "$name" ] || fail "wipe: no disk with serial $serial in /disks: $disks"
+    out=$(api -X POST "http://127.0.0.1:$PORT/disks/partition/$name")
+    grep -q '"status":"ok"' <<<"$out" || fail "wipe: partition $name: $out"
+    out=$(api -X POST -d fstype=ext4 "http://127.0.0.1:$PORT/disks/format/${name}1")
+    grep -q '"status":"ok"' <<<"$out" || fail "wipe: format ${name}1: $out"
+    n=$(api "http://127.0.0.1:$PORT/disks/detail/$name" | json "len(d['data'].get('partitions') or [])")
+    [ "$n" -ge 1 ] || fail "wipe: $name has no partition to wipe"
+    out=$(api -X POST "http://127.0.0.1:$PORT/disks/wipe/$name")
+    v=$(json "d['status']+' '+str(d['data']['/dev/$name']['verified'])+' '+str(d['data']['/dev/$name']['rotational'])+' '+','.join(s['step'].replace(' ','_') for s in d['data']['/dev/$name']['steps'])" <<<"$out") \
+        || fail "wipe: $name: $out"
+    case "$kind:$v" in
+        hdd:"ok True True "*) grep -q blkdiscard <<<"$v" && fail "wipe: blkdiscard ran on the HDD: $v" ;;
+        ssd:"ok True False "*) grep -q blkdiscard <<<"$v" || fail "wipe: no blkdiscard on the SSD: $v" ;;
+        *) fail "wipe: $name ($kind): $v: $out" ;;
+    esac
+    n=$(api "http://127.0.0.1:$PORT/disks/detail/$name" | json "len(d['data'].get('partitions') or [])")
+    [ "$n" -eq 0 ] || fail "wipe: $name still has $n partition(s)"
+    python3 - "$W/$kind.img" <<'PY' || fail "wipe: $kind.img on the host is not zero at the head/tail"
+import os, sys
+f = open(sys.argv[1], 'rb'); size = os.path.getsize(sys.argv[1]); M = 64 << 20
+for off in (0, size - M):
+    f.seek(off)
+    if f.read(M).count(0) != M: sys.exit(1)
+PY
+    say "wipe $kind ($name): verified; steps ${v##* }; host image zero at head and tail"
+done
+out=$(api -X POST "http://127.0.0.1:$PORT/disks/wipe/nosuchdisk")
+grep -q '"status":"error"' <<<"$out" || fail "wipe: a missing disk did not fail: $out"
 say "PASS"

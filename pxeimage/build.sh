@@ -111,6 +111,10 @@ fetch_apk "$MAIN_URL" e2fsprogs required
 fetch_apk "$MAIN_URL" e2fsprogs-libs required
 fetch_apk "$MAIN_URL" xfsprogs required
 fetch_apk "$MAIN_URL" dosfstools required
+# A disk wipe needs wipefs and sgdisk (#15): without wipefs the old wipe
+# "succeeded" and left every partition in place.
+fetch_apk "$MAIN_URL" wipefs required
+fetch_apk "$MAIN_URL" sgdisk required
 # NVMe: nvme-cli is useless without libnvme + libnvme-mi, and both must match
 # the CDN's current version — pin nothing, and fail the build if either is
 # missing rather than shipping a binary that cannot start (issue #1).
