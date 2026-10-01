@@ -133,7 +133,13 @@ echo "Creating EFI boot image..."
 # grub2 build is well past the 4 MiB this image used to be.
 EFIBOOT_MB=$(( $(stat -c%s "$TMPGRUB/bootx64.efi") / 1048576 + 2 ))
 dd if=/dev/zero of="$ISO_BUILD/efiboot.img" bs=1M count=$EFIBOOT_MB 2>/dev/null
-mformat -i "$ISO_BUILD/efiboot.img" -F ::
+# FAT12/16 as sized: `mformat -F` forced FAT32, which at a few MiB has too few
+# clusters to be valid, and OVMF finds no BOOTX64.EFI on it (#2).
+if command -v mkfs.fat >/dev/null 2>&1; then
+    mkfs.fat -n EFIBOOT "$ISO_BUILD/efiboot.img" >/dev/null
+else
+    mformat -i "$ISO_BUILD/efiboot.img" ::
+fi
 mmd -i "$ISO_BUILD/efiboot.img" ::/EFI
 mmd -i "$ISO_BUILD/efiboot.img" ::/EFI/BOOT
 mcopy -i "$ISO_BUILD/efiboot.img" "$TMPGRUB/bootx64.efi" ::/EFI/BOOT/BOOTX64.EFI
