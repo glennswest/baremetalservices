@@ -5,8 +5,8 @@ A bare metal server management and provisioning system that runs as a boot image
 ## Architecture
 
 - **Go binary** serving two HTTP servers simultaneously:
-  - **Port 80** - Web UI dashboard with auto-refresh
-  - **Port 8080** - JSON REST API
+  - **Port 80** - Web UI dashboard with auto-refresh (fixed)
+  - **Port 8080** - JSON REST API (`PORT` environment variable overrides it; `init` does not set it)
 - **Boot image** based on Alpine Linux with a custom init script, built as two goldens: a 4K GPT disk for network boot through stormbootx, and a hybrid BIOS+UEFI ISO for BMC virtual CD and USB
 - Boots, discovers hardware, and exposes management interfaces over the network
 
@@ -38,7 +38,8 @@ lists them as optional rows, and minismbd shares them for BMC virtual media.
 
 ## REST API
 
-All API responses use the format:
+No authentication: anyone who can reach the blade can wipe its disks or
+reflash its firmware. `GET /` lists every endpoint. All API responses use the format:
 ```json
 {
   "status": "ok",
@@ -64,7 +65,7 @@ All API responses use the format:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/ipmi` | IPMI info (IP, MAC, IP source, subnet, gateway, users) |
-| POST | `/ipmi/reset` | Reset IPMI to ADMIN/ADMIN credentials with full access and DHCP |
+| POST | `/ipmi/reset` | Reset IPMI user 2 to ADMIN/ADMIN with full access, LAN to DHCP, then `mc reset cold` so it takes effect |
 
 ### Disk Management
 
@@ -82,11 +83,11 @@ All API responses use the format:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/firmware` | List bundled Mellanox firmware files |
+| GET | `/firmware` | List bundled Mellanox firmware files (`/usr/share/firmware/mellanox/*.bin`) |
 | POST | `/firmware/update` | Update Mellanox NIC firmware. Parameters: `device=<pci_addr>`, optional `url=<firmware_url>` |
-| GET | `/bios` | BIOS version and update availability |
-| POST | `/bios/update` | Update BIOS via flashrom (checks board compatibility, requires `force=true`) |
-| POST | `/bios/configure` | Configure BIOS settings (quick_boot, quiet_boot, disable PXE on specified NICs) |
+| GET | `/bios` | BIOS version and update availability (known boards: X9SRD-F → 3.2b, file in `/usr/share/firmware/bios/`) |
+| POST | `/bios/update` | Update BIOS via flashrom (checks board compatibility, requires `force=true`). Goldens carry no BIOS file today (#13), so there is nothing to apply |
+| POST | `/bios/configure` | JSON `{"quick_boot", "quiet_boot", "disable_pxe_nics"}`: quick/quiet boot through `sum`, PXE removed from the EFI boot entries of the named NICs through `efibootmgr` |
 | GET | `/bios/config` | The whole BIOS configuration file (`sum -c GetCurrentBiosCfg`), returned as-is (text, or XML on newer boards) |
 | POST | `/bios/config` | Apply a file from `GET /bios/config` as the request body (`sum -c ChangeBiosCfg`); takes effect on the next reboot |
 
@@ -172,12 +173,16 @@ When SSH'd into a booted server (`ssh root@<ip>`), the following tools are avail
 | `mkfs.ext4` | Format ext4 filesystem |
 | `mkfs.xfs` | Format XFS filesystem |
 | `mkfs.vfat` | Format FAT32 filesystem |
-| `nvme` | NVMe drive management |
+| `nvme` | NVMe drive management, `nvme connect` for NVMe/TCP |
+| `fio` | Storage benchmarking |
+| `iscsiadm` | iSCSI initiator (open-iscsi) |
+| `sum` | Supermicro Update Manager (BIOS settings) |
+| `mlxup` | Mellanox firmware update |
 | `ipmitool` | IPMI/BMC management |
 | `ethtool` | Network interface configuration |
 | `dmidecode` | DMI/SMBIOS hardware info |
-| `mstflint` | Mellanox NIC firmware tools |
-| `flashrom` | BIOS flash programming |
+| `mstflint` | Mellanox NIC firmware tools (best effort: from Alpine edge/testing, not required by the build) |
+| `flashrom` | BIOS flash programming (best effort: not required by the build) |
 | `efibootmgr` | EFI boot entry management |
 
 ## Boot Image
@@ -186,15 +191,24 @@ The image includes:
 
 - Alpine Linux minimal rootfs
 - Custom init script with automatic hardware detection
-- Kernel modules: AHCI, SATA, SCSI, IPMI, network drivers (Intel, Mellanox, Realtek, Virtio)
-- Dropbear SSH server (passwordless root)
-- NTP time synchronization
-- Automatic DHCP with retry logic and gateway validation
-- Bundled Mellanox ConnectX-3 firmware
+- Alpine `linux-lts` kernel with all of its modules; `init` loads (explicit
+  `modprobe`, there is no hotplug): AHCI/SATA/SCSI, SAS (mpt3sas, mpt2sas,
+  megaraid_sas, hpsa), NVMe plus `nvme_fabrics`/`nvme_tcp` (stormblock volumes and any
+  NVMe-oF target), iSCSI (`iscsi_tcp`), IPMI, and the network drivers below
+- Dropbear SSH on port 22: root with an empty password (`-B`). Goldens carry no
+  authorized keys (#13)
+- DHCP on eth0 first (it keeps the address if it already has one), then every
+  other interface in the background, retried until the gateway answers.
+  mlx4/ixgbe ports are forced to 10G with autoneg off (see `NETWORK.md`)
+- Hostname from reverse DNS of eth0's address, about 10 s after boot
+- NTP from `pool.ntp.org`: a boot sync bounded to 20 s (the API starts without it), then `ntpd` in the background
+- Getty on ttyS0, ttyS1 and the console at 115200, with a banner giving the API URL
+- Supermicro Update Manager (`sum`) and `mlxup`, from `pxeimage/tools/`
+- Mellanox ConnectX-3 firmware, downloaded at build time on a best-effort basis (#13)
 
-### Supported Network Drivers
+### Network Drivers Loaded at Boot
 
-- Intel: e1000, e1000e, igb, ixgbe, i40e, ice
+- Intel: e1000, e1000e, igb, ixgbe (i40e and ice are in the image but never loaded: #12)
 - Mellanox: mlx4_core, mlx4_en, mlx5_core
 - Realtek: r8169
 - Virtual: virtio_net
@@ -212,7 +226,18 @@ unprivileged and keeps everything under `$TMPDIR` and `OUT`:
    `baremetalservices-maint`: `pxeimage/build-disk.sh` → `OUT/boot/baremetalservices-maint.iso`
    (stormcentral's file name for every media golden; the bytes are a GPT disk image).
 
-OUT also holds `vmlinuz`, `initramfs`, `BUILD` and `SHA256SUMS`.
+OUT also holds `vmlinuz`, `initramfs`, `BUILD` and `SHA256SUMS`. The recipe
+refuses a checkout with uncommitted changes and a non-empty OUT.
+
+Both images boot the kernel with `console=tty0 console=ttyS0,115200n8
+console=ttyS1,115200n8 iomem=relaxed` (the ISO adds `ip=dhcp`; `build-disk.sh`
+takes `CMDLINE` to override it for -maint).
+
+`make build`, `make run` and `make test` are for local development. `make
+pxeimage` and `make iso` still run `build.sh` and `build-iso.sh` with their
+defaults (output in `pxeimage/boot/` and `./baremetalservices.iso`), but goldens
+come only from `deploy/build-golden.sh`. `pxeimage/boot/pxelinux.*` are left over
+from the retired TFTP deploy.
 
 Build host needs: Go 1.24+, curl, cpio, gzip, unzip, depmod, xorriso,
 grub(2)-mkstandalone with x86_64-efi modules, mtools, dosfstools, objcopy and

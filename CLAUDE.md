@@ -7,7 +7,11 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 - Version: `VERSION` in `Makefile` (1.0.0). No tags yet.
 - Build: on dev.g8.lo through `sc-build` only (cross-project rules). No podman,
   no builds on server1; `make deploy` to pxe.g10.lo is retired.
-- Tests: `go test ./...` (pure parsers); `sc-build` runs the image build.
+- Tests: `go test ./...` (pure parsers); `sc-build test/run.sh` builds both
+  goldens and boots them under QEMU.
+- Ships as two stormcentral media goldens (`baremetalservices` ISO,
+  `baremetalservices-maint` 4K network-boot disk), boot helpers with stormipmi.
+- API port: `PORT` env (default 8080); web UI fixed on :80. No auth.
 
 ## Work plan
 
@@ -27,3 +31,8 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 6. [x] README.
 
 ### Issue #1 — nvme-cli / fio in the image (fixes pushed 2026-08-09)
+
+### Open from the docs refresh (2026-09-30)
+- #12: `init` never loads i40e/ice (README listed them as supported).
+- #13: goldens carry no SSH keys or BIOS file, and the CX3 firmware download is
+  best effort (`build.sh` reads them from the builder's `$HOME`).

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-09-30
+- **docs:** Refreshed README and CLAUDE.md from the code: `PORT` override for the API (web UI fixed on :80, no auth), what `/ipmi/reset`, `/bios`, `/bios/configure` and `/firmware` actually do, the kernel modules `init` loads (SAS, NVMe/TCP, iSCSI), boot behaviour (reverse-DNS hostname, bounded NTP, gettys), the full tool list (`fio`, `iscsiadm`, `sum`, `mlxup`; `flashrom`/`mstflint` best effort), the boot command line, and what the Make targets still do. Filed #12 (i40e/ice listed as supported but never loaded) and #13 (goldens carry no SSH keys or BIOS image).
 - **feat:** `deploy/build-golden.sh baremetalservices|baremetalservices-maint OUT` — the stormcentral media-golden recipe, run unprivileged on dev.g8.lo. `baremetalservices` is the hybrid BIOS+UEFI ISO (BMC virtual CD, USB); `baremetalservices-maint` is a 4096-byte-block GPT disk whose ESP holds a unified kernel image as `\EFI\BOOT\BOOTX64.EFI`, the shape stormbootx claims over NVMe/TCP and chain-loads (#2).
 - **feat:** `pxeimage/build-disk.sh` builds that disk (systemd-stub UKI via objcopy, FAT at 4096-byte sectors, 4K GPT) (#2).
 - **fix:** Image builds use no `/tmp` or `~` paths (mktemp under `$TMPDIR`, output dirs overridable), use `grub2-mkstandalone` where `grub-mkstandalone` is absent (Fedora), find syslinux by name in the Alpine index instead of a pinned revision, and pack the initramfs with every file owned by root (`cpio -R 0:0`) whoever builds it (#2).
