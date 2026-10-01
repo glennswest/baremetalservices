@@ -8,7 +8,7 @@
 #   test/boot-ovmf.sh bios IMAGE   # the ISO golden: CD-ROM, legacy BIOS (SeaBIOS)
 #
 # PASS means: the firmware started the image, the kernel ran our init, and
-# the agent answered GET /health, /system and /boot/order (UEFI only) over the
+# the getty banner init writes is on a serial console, and the agent answered GET /health, /system and /boot/order (UEFI only) over the
 # guest's DHCP'd network.
 set -uo pipefail
 
@@ -69,10 +69,10 @@ fail() { say "FAIL: $*"; say "--- serial console (last 60 lines) ---"; console |
 
 [ "$ok" = yes ] || fail "the agent never answered /health within ${BOOT_TIMEOUT}s"
 for ((i = 0; i < 30; i++)); do
-    console | grep -aq '=== Bare Metal Services Booting ===' && break
+    console | grep -aq '   Bare Metal Services$' && break
     sleep 1
 done
-console | grep -aq '=== Bare Metal Services Booting ===' || { ls -l "$W"; fail "init banner not on the serial console"; }
+console | grep -aq '   Bare Metal Services$' || { ls -l "$W"; fail "the getty banner (/etc/issue from init) is not on the serial console"; }
 say "console: $(console | grep -ac .) lines; $(console | grep -am1 'Linux version' | cut -c1-80)"
 curl -sf --max-time 30 "http://127.0.0.1:$PORT/system" | grep -q '"status":"ok"' || fail "/system"
 say "/system ok: $(curl -sf --max-time 30 "http://127.0.0.1:$PORT/system" | grep -o '"kernel":"[^"]*"')"
