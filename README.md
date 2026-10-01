@@ -229,6 +229,8 @@ The image includes:
   `/usr/lib/x86_64-linux-gnu`, with `/lib64/ld-linux-x86-64.so.2` pointing at
   Debian's loader (Alpine's `gcompat` shim lacks symbols `sum` needs, #14).
   The build fails if `sum` does not run, or `mlxup` does not link, against it
+- The build fails if any program or library in the image is missing a shared
+  library it needs (`readelf` over every ELF; needs binutils on the builder)
 - Mellanox ConnectX-3 firmware, downloaded at build time on a best-effort basis (#13)
 
 ### Network Drivers Loaded at Boot
@@ -282,7 +284,9 @@ builds both goldens, and boots each under QEMU the way it is used:
 
 Each passes when the getty banner is on the serial console and the agent
 answers `/health`, `/system` and (UEFI) `/boot/order` over the guest's DHCP'd
-network. The guest has an emulated BMC (`ipmi-bmc-sim` on KCS), and
+network. Two scratch AHCI disks (an HDD and an SSD with discard) are
+partitioned, formatted and wiped through the API, and the wipe is checked
+from inside and from the host (#15). The guest has an emulated BMC (`ipmi-bmc-sim` on KCS), and
 `/bios/config` must show `sum` ran (it then refuses QEMU's non-Supermicro
 board, but never with a loader error, #14). `test/boot-ovmf.sh <mode> <image>` runs one.
 
