@@ -147,13 +147,15 @@ fetch_apk "$MAIN_URL" lvm2-libs required
 fetch_apk "$MAIN_URL" device-mapper-libs required
 # Found missing by the shared-library check below (#15): mkfs.ext4/e2fsck
 # (libcom_err), mkfs.xfs/xfs_repair (inih, userspace-rcu), fio (numactl),
-# iscsiadm/iscsid (kmod-libs, open-isns-lib), efibootdump (libintl), lvm2
+# iscsiadm/iscsid (kmod-libs with zstd-libs and xz-libs, open-isns-lib), efibootdump (libintl), lvm2
 # (device-mapper-event-libs).
 fetch_apk "$MAIN_URL" libcom_err required
 fetch_apk "$MAIN_URL" inih required
 fetch_apk "$MAIN_URL" userspace-rcu required
 fetch_apk "$MAIN_URL" numactl required
 fetch_apk "$MAIN_URL" kmod-libs required
+fetch_apk "$MAIN_URL" zstd-libs required
+fetch_apk "$MAIN_URL" xz-libs required
 fetch_apk "$MAIN_URL" open-isns-lib required
 fetch_apk "$MAIN_URL" libintl required
 fetch_apk "$MAIN_URL" device-mapper-event-libs required
