@@ -129,12 +129,15 @@ echo "  bootx64.efi built"
 
 # Create FAT EFI boot image using mtools
 echo "Creating EFI boot image..."
-dd if=/dev/zero of="$ISO_BUILD/efiboot.img" bs=1M count=4 2>/dev/null
+# Sized from the loader: a standalone GRUB carries every module, and Fedora's
+# grub2 build is well past the 4 MiB this image used to be.
+EFIBOOT_MB=$(( $(stat -c%s "$TMPGRUB/bootx64.efi") / 1048576 + 2 ))
+dd if=/dev/zero of="$ISO_BUILD/efiboot.img" bs=1M count=$EFIBOOT_MB 2>/dev/null
 mformat -i "$ISO_BUILD/efiboot.img" -F ::
 mmd -i "$ISO_BUILD/efiboot.img" ::/EFI
 mmd -i "$ISO_BUILD/efiboot.img" ::/EFI/BOOT
 mcopy -i "$ISO_BUILD/efiboot.img" "$TMPGRUB/bootx64.efi" ::/EFI/BOOT/BOOTX64.EFI
-echo "  efiboot.img created (4MB FAT)"
+echo "  efiboot.img created (${EFIBOOT_MB}MB FAT)"
 
 # Build the ISO with dual BIOS + EFI boot
 echo "Building ISO image..."
