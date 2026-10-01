@@ -142,6 +142,18 @@ fetch_apk "$MAIN_URL" lvm2-libs required
 # libparted links libdevmapper; without it `parted` (POST /disks/partition)
 # dies at startup (found by the #15 boot test).
 fetch_apk "$MAIN_URL" device-mapper-libs required
+# Found missing by the shared-library check below (#15): mkfs.ext4/e2fsck
+# (libcom_err), mkfs.xfs/xfs_repair (inih, userspace-rcu), fio (numactl),
+# iscsiadm/iscsid (kmod-libs, open-isns-lib), efibootdump (libintl), lvm2
+# (device-mapper-event-libs).
+fetch_apk "$MAIN_URL" libcom_err required
+fetch_apk "$MAIN_URL" inih required
+fetch_apk "$MAIN_URL" userspace-rcu required
+fetch_apk "$MAIN_URL" numactl required
+fetch_apk "$MAIN_URL" kmod-libs required
+fetch_apk "$MAIN_URL" open-isns-lib required
+fetch_apk "$MAIN_URL" libintl required
+fetch_apk "$MAIN_URL" device-mapper-event-libs required
 fetch_apk "$MAIN_URL" json-c required
 # PCI and block device tools
 fetch_apk "$MAIN_URL" pciutils required
