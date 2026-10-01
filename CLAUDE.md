@@ -30,6 +30,18 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        waits on stormbootx#56) and close #2.
 6. [x] README.
 
+### Issue #14 — sum is glibc, the image is musl (P1, in progress 2026-10-01)
+sum 2.15 needs ld-linux-x86-64.so.2, libc/libm/librt/libdl/libpthread,
+libgcc_s, libz (glibc). Plan:
+1. [ ] build.sh ships Debian's glibc runtime (libc6, libgcc-s1, zlib1g debs,
+       found by name in the Packages index) under /lib/x86_64-linux-gnu +
+       /lib64/ld-linux-x86-64.so.2: sum runs unmodified, musl's loader never
+       looks there. ExternalData next to the binary.
+2. [ ] init loads ipmi_si/ipmi_devintf (sum in-band needs /dev/ipmi0).
+3. [ ] boot test: QEMU with an emulated BMC (ipmi-bmc-sim + KCS); `sum -v`
+       runs and `sum -c GetCurrentBiosCfg` gets past the loader.
+4. [ ] In-band GetCurrentBiosCfg/ChangeBiosCfg on an X9 blade.
+
 ### Issue #1 — nvme-cli / fio in the image (fixes pushed 2026-08-09)
 
 ### Open from the docs refresh (2026-09-30)
