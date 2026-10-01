@@ -38,9 +38,9 @@ cp "$IMAGE" "$W/image"     # the guest may write to its disk; never to the golde
 
 for d in hdd ssd; do truncate -s 4G "$W/$d.img"; done
 SCRATCH=(-drive if=none,id=hdd,format=raw,file="$W/hdd.img"
-         -device ide-hd,drive=hdd,serial=WIPEHDD,rotation_rate=7200
+         -device ide-hd,bus=ide.4,drive=hdd,serial=WIPEHDD,rotation_rate=7200
          -drive if=none,id=ssd,format=raw,discard=unmap,file="$W/ssd.img"
-         -device ide-hd,drive=ssd,serial=WIPESSD,rotation_rate=1)
+         -device ide-hd,bus=ide.5,drive=ssd,serial=WIPESSD,rotation_rate=1)
 
 FW=()
 case "$MODE" in
