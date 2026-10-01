@@ -53,10 +53,10 @@ iso)
     cp "$OVMF_VARS" "$W/vars.fd"
     FW=(-drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" -drive if=pflash,format=raw,file="$W/vars.fd")
     DISK=(-drive if=none,id=cd,format=raw,media=cdrom,readonly=on,file="$W/image"
-          -device ide-cd,drive=cd,bootindex=0) ;;
+          -device ide-cd,bus=ide.0,drive=cd,bootindex=0) ;;
 bios)
     DISK=(-drive if=none,id=cd,format=raw,media=cdrom,readonly=on,file="$W/image"
-          -device ide-cd,drive=cd,bootindex=0) ;;
+          -device ide-cd,bus=ide.0,drive=cd,bootindex=0) ;;
 *) say "unknown mode $MODE"; exit 2 ;;
 esac
 
