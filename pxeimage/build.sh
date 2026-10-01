@@ -56,7 +56,9 @@ cd "$BUILD_DIR/tmp/apk"
 #   fetch_apk <repo-url> <package-name> [required]
 fetch_apk() {
     local repo="$1" name="$2" required="${3:-optional}" file
-    file=$(curl -sL "$repo/" | grep -o "${name}-[0-9][^\"]*\.apk" | grep -v -- '-doc-\|-dev-' | sort -V | tail -1)
+    # Anchored at the link's opening quote: unanchored, `libintl` matched
+    # musl-libintl-1.2.5-r3.apk and fetched a file that does not exist (#15).
+    file=$(curl -sL "$repo/" | grep -o "\"${name}-[0-9][^\"]*\.apk" | tr -d '"' | grep -v -- '-doc-\|-dev-' | sort -V | tail -1)
     if [ -z "$file" ]; then
         if [ "$required" = "required" ]; then
             echo "ERROR: package '$name' not found in $repo — refusing to build a broken image"
