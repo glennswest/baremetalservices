@@ -1,6 +1,6 @@
 # Bare Metal Services
 
-A bare metal server management and provisioning system that runs as a PXE boot image. Provides a REST API, web dashboard, and CLI tools for hardware discovery, disk management, firmware updates, and IPMI configuration.
+A bare metal server management and provisioning system that runs as a boot image (network boot through stormbootx, BMC virtual CD, USB). Provides a REST API, web dashboard, and CLI tools for hardware discovery, disk management, firmware updates, and IPMI configuration.
 
 ## Architecture
 
@@ -12,16 +12,29 @@ A bare metal server management and provisioning system that runs as a PXE boot i
 
 ## Quick Start
 
+Built on the build box (dev.g8.lo) as two stormcentral **media goldens** from
+one image build — never on server1, never with podman, no `make deploy`:
+
+| Golden | Bytes | Used for |
+|--------|-------|----------|
+| `baremetalservices` | Hybrid ISO: ISOLINUX (BIOS) + GRUB (UEFI), MBR+GPT | BMC virtual CD, USB sticks; boot helper `iso` |
+| `baremetalservices-maint` | GPT disk at **4096-byte blocks**, one ESP holding a unified kernel image as `\EFI\BOOT\BOOTX64.EFI` | Network boot through stormbootx at NIC speed; boot helper `img` |
+
 ```bash
-# Build and deploy to PXE server
-make deploy
+# Build and boot-test both images on dev (from your checkout, after git push)
+sc-build test/run.sh
 
-# Build only (no deploy)
-make pxeimage
+# Request the goldens (stormcentral runs deploy/build-golden.sh on dev)
+stormcentral component build baremetalservices      --url http://stormcentral.g8.lo
+stormcentral component build baremetalservices-maint --url http://stormcentral.g8.lo
 
-# Run locally for development
+# Run the agent locally for development
 make run
 ```
+
+Both are boot helpers that ride with the BMC/IPMI role (`boothelper_with =
+["stormipmi"]`, stormcentral#227): a release whose image carries stormipmi
+lists them as optional rows, and minismbd shares them for BMC virtual media.
 
 ## REST API
 
@@ -167,9 +180,9 @@ When SSH'd into a booted server (`ssh root@<ip>`), the following tools are avail
 | `flashrom` | BIOS flash programming |
 | `efibootmgr` | EFI boot entry management |
 
-## PXE Boot Image
+## Boot Image
 
-The PXE image includes:
+The image includes:
 
 - Alpine Linux minimal rootfs
 - Custom init script with automatic hardware detection
@@ -186,66 +199,63 @@ The PXE image includes:
 - Realtek: r8169
 - Virtual: virtio_net
 
-### Build Requirements
+### Build
 
-- Go 1.24+
-- curl, cpio, gzip (for PXE image build)
-- Access to Alpine Linux package repositories
+`deploy/build-golden.sh <golden> OUT` is the recipe stormcentral runs. It is
+unprivileged and keeps everything under `$TMPDIR` and `OUT`:
 
-### Build Targets
+1. `go build` the agent (static, linux/amd64).
+2. `pxeimage/build.sh`: Alpine 3.20 rootfs + `linux-lts` kernel and all its
+   modules + tools, every package found by name in the Alpine index (a missing
+   required package fails the build), packed as a root-owned gzip cpio.
+3. `baremetalservices`: `pxeimage/build-iso.sh` → `OUT/boot/baremetalservices.iso`.
+   `baremetalservices-maint`: `pxeimage/build-disk.sh` → `OUT/boot/baremetalservices-maint.iso`
+   (stormcentral's file name for every media golden; the bytes are a GPT disk image).
 
-```bash
-make build          # Compile Go binary (local OS)
-make build-linux    # Cross-compile for Linux x86_64
-make clean          # Remove binaries and initramfs
-make run            # Run locally
-make pxeimage       # Build PXE image (vmlinuz + initramfs)
-make deploy         # Build + deploy to PXE server
-make iso            # Build bootable ISO (BIOS + EFI)
-```
+OUT also holds `vmlinuz`, `initramfs`, `BUILD` and `SHA256SUMS`.
 
-## Bootable ISO
+Build host needs: Go 1.24+, curl, cpio, gzip, unzip, depmod, xorriso,
+grub(2)-mkstandalone with x86_64-efi modules, mtools, dosfstools, objcopy and
+the systemd-boot EFI stub (`/usr/lib/systemd/boot/efi/linuxx64.efi.stub`),
+python3. dev.g8.lo (Fedora 43) has them all.
 
-The ISO supports both **BIOS** (ISOLINUX) and **UEFI** (GRUB) boot modes, with hybrid MBR+GPT for USB boot.
+### Test
 
-### Building the ISO
+`test/run.sh` (run it with `sc-build test/run.sh`) runs `go vet`/`go test`,
+builds both goldens, and boots each under QEMU the way it is used:
 
-The ISO must be built on a Linux x86_64 host (not cross-compiled on macOS). Use podman remote to build on server1:
+| Mode | Boots | Firmware |
+|------|-------|----------|
+| `disk` | the -maint image as a virtio disk with 4096-byte logical blocks | OVMF (UEFI) |
+| `iso` | the ISO as a CD-ROM | OVMF (UEFI) |
+| `bios` | the ISO as a CD-ROM | SeaBIOS (legacy) |
 
-```bash
-# Build on server1 via podman remote
-podman -c server1 build --no-cache --file Containerfile.iso \
-  --tag baremetalservices-iso \
-  https://github.com/glennswest/baremetalservices.git
+Each passes when the getty banner is on the serial console and the agent
+answers `/health`, `/system` and (UEFI) `/boot/order` over the guest's DHCP'd
+network. `test/boot-ovmf.sh <mode> <image>` runs one.
 
-# Extract ISO locally
-podman -c server1 create --name iso-extract baremetalservices-iso
-podman -c server1 cp iso-extract:/baremetalservices.iso ./baremetalservices.iso
-podman -c server1 rm iso-extract
-```
+## Network Boot (stormbootx)
 
-### Deploying to iSCSI CDROM
+Booting the ISO from an X9 BMC's virtual CD is very slow (the BMC reads it over
+SMB1 in small reads; ISOLINUX sits at `Loading /initramfs...` for minutes).
+Instead the blade boots **stormbootx** (small, quick from virtual CD or the
+NIC), and stormbootx claims `boothost/<host>` from the storage engine: when that
+points at the `baremetalservices-maint` golden, stormbootx attaches a
+copy-on-write clone over NVMe/TCP, reads `\EFI\BOOT\BOOTX64.EFI` off the ESP
+itself (its `esp.rs`: GPT at the disk's block size, FAT at 4096-byte sectors)
+and starts it — the same path a release boots by.
 
-Upload the ISO to the mkube iSCSI CDROM server for network boot:
+The `-maint` image is built for that path:
 
-```bash
-curl -X POST http://192.168.200.2:8082/api/v1/iscsi-cdroms/baremetalservices/upload \
-  -F "iso=@baremetalservices.iso"
-```
+- **4096-byte blocks**, like every stormblock volume: GPT header at byte 4096,
+  the ESP at 1 MiB, FAT16 (FAT32 past ~240 MiB) at 4096-byte sectors.
+- **A unified kernel image** (systemd-stub + kernel + initramfs + command line
+  `console=tty0 console=ttyS0,115200n8 console=ttyS1,115200n8 iomem=relaxed`).
+  Once loaded nothing else is read from the volume, so the kernel taking the
+  NIC over (and the NVMe/TCP session with it) costs nothing.
 
-The ISO is served at:
-- **iSCSI target**: `iqn.2000-02.com.mikrotik:file1`
-- **Portal**: `192.168.200.1:3260`
-
-### Boot Methods
-
-| Method | Description |
-|--------|-------------|
-| USB | `dd if=baremetalservices.iso of=/dev/sdX bs=1M status=progress` |
-| IPMI | Upload via virtual media / remote console |
-| VM | Attach as CD-ROM |
-| iSCSI | PXE chain: DHCP → iPXE → iSCSI sanboot |
-| PXE | Direct PXE boot (vmlinuz + initramfs via TFTP) |
+Pointing a machine's boothost at the -maint golden (and back to its release)
+is stormcentral's: see the work plan in `CLAUDE.md`.
 
 ## Hardware Support
 

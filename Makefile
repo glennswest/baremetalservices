@@ -1,9 +1,9 @@
-.PHONY: build build-linux clean run pxeimage pxeimage-deploy deploy iso
+.PHONY: build build-linux clean run test pxeimage iso
 
+# Images are built on dev.g8.lo as stormcentral goldens (deploy/build-golden.sh,
+# `sc-build test/run.sh`); the targets below are for local development.
 BINARY=baremetalservices
 VERSION=1.0.0
-PXE_SERVER=root@pxe.g10.lo
-PXE_DIR=/tftpboot
 
 build:
 	go build -o $(BINARY) .
@@ -17,21 +17,11 @@ clean:
 run:
 	go run .
 
+test:
+	go vet ./... && go test ./...
+
 pxeimage: build-linux
-	@echo "Building PXE image..."
 	./pxeimage/build.sh
 
-pxeimage-deploy: pxeimage
-	@echo "Deploying PXE image to $(PXE_SERVER)..."
-	scp pxeimage/boot/initramfs $(PXE_SERVER):$(PXE_DIR)/
-	scp pxeimage/boot/vmlinuz $(PXE_SERVER):$(PXE_DIR)/
-	scp pxeimage/boot/pxelinux.0 $(PXE_SERVER):$(PXE_DIR)/
-	scp pxeimage/boot/ldlinux.c32 $(PXE_SERVER):$(PXE_DIR)/
-	scp pxeimage/boot/pxelinux.cfg/default $(PXE_SERVER):$(PXE_DIR)/pxelinux.cfg/
-	@echo "Deploy complete."
-
-deploy: pxeimage-deploy
-
 iso: pxeimage
-	@echo "Building bootable ISO..."
 	./pxeimage/build-iso.sh
