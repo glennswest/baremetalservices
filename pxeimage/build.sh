@@ -185,18 +185,67 @@ rm -f "$CX3_ZIP"
 # List downloaded firmware
 ls -la "$FIRMWARE_DIR" 2>/dev/null || true
 
-# Install Supermicro Update Manager (SUM)
+# glibc runtime for the vendor binaries (sum, mlxup), issue #14.
+#
+# Both are glibc programs (PT_INTERP /lib64/ld-linux-x86-64.so.2). The base
+# rootfs points that path at Alpine's gcompat shim, which lacks symbols sum
+# needs: `Error relocating /usr/bin/sum: mallopt / posix_fallocate64: symbol
+# not found`. Ship a real glibc instead: Debian's libc6, libgcc-s1, zlib1g and
+# libstdc++6, unpacked into /usr/lib/x86_64-linux-gnu (the multiarch dir
+# Debian's ld.so searches before /lib, so it never picks up a musl lib, and
+# musl's loader never looks there), and repoint /lib64/ld-linux-x86-64.so.2 at
+# Debian's loader. The binaries run unmodified; nothing else uses /lib64.
+echo "Installing glibc runtime for sum/mlxup..."
+DEBIAN_URL="https://deb.debian.org/debian"
+DEBIAN_SUITE="trixie"
+GLIBC_DIR="usr/lib/x86_64-linux-gnu"
+GLIBC_WORK="$(mktemp -d "${TMPDIR:-/tmp}/bms-glibc.XXXXXX")"
+curl -sfL "$DEBIAN_URL/dists/$DEBIAN_SUITE/main/binary-amd64/Packages.xz" -o "$GLIBC_WORK/Packages.xz" \
+    || { echo "ERROR: cannot fetch the Debian $DEBIAN_SUITE package index"; exit 1; }
+for deb in libc6 libgcc-s1 zlib1g libstdc++6; do
+    # Found by name in the index, like fetch_apk: nothing pinned (#1).
+    file=$(xz -dc "$GLIBC_WORK/Packages.xz" | awk -v p="$deb" '
+        /^Package: / { hit = ($2 == p) }
+        hit && /^Filename: / { print $2; exit }')
+    [ -n "$file" ] || { echo "ERROR: $deb not in the Debian $DEBIAN_SUITE index"; exit 1; }
+    curl -sfL "$DEBIAN_URL/$file" -o "$GLIBC_WORK/$deb.deb" || { echo "ERROR: download of $file failed"; exit 1; }
+    data=$(cd "$GLIBC_WORK" && ar t "$deb.deb" | grep '^data\.tar')
+    (cd "$GLIBC_WORK" && ar x "$deb.deb" "$data")
+    tar xf "$GLIBC_WORK/$data" -C "$BUILD_DIR" "./$GLIBC_DIR" \
+        || { echo "ERROR: $deb has no $GLIBC_DIR"; exit 1; }
+    rm -f "$GLIBC_WORK/$data"
+    echo "  $(basename "$file")"
+done
+rm -rf "$GLIBC_WORK"
+chmod -R u+w "$BUILD_DIR/$GLIBC_DIR"
+mkdir -p "$BUILD_DIR/lib64"
+ln -sfn "/$GLIBC_DIR/ld-linux-x86-64.so.2" "$BUILD_DIR/lib64/ld-linux-x86-64.so.2"
+GLIBC_LD="$BUILD_DIR/$GLIBC_DIR/ld-linux-x86-64.so.2"
+[ -x "$GLIBC_LD" ] || { echo "ERROR: no glibc loader at /$GLIBC_DIR"; exit 1; }
+
+# Run a vendor binary on the image's glibc, from the build host: every symbol
+# bound up front (LD_BIND_NOW), libraries only from the image.
+image_glibc_run() { LD_BIND_NOW=1 "$GLIBC_LD" --inhibit-cache --library-path "$BUILD_DIR/$GLIBC_DIR" "$@"; }
+
+# Install Supermicro Update Manager (SUM), with its ExternalData beside it as
+# in Supermicro's package; /usr/bin/sum links to it.
 echo "Installing Supermicro Update Manager (SUM)..."
-if [ -d "$SCRIPT_DIR/tools/sum" ]; then
-    # usr/bin/sum is busybox's `sum` applet, an absolute symlink: remove it
-    # rather than let cp follow it onto the build host's /bin/busybox.
-    rm -f "$BUILD_DIR/usr/bin/sum"
-    cp "$SCRIPT_DIR/tools/sum/sum" "$BUILD_DIR/usr/bin/sum"
-    chmod +x "$BUILD_DIR/usr/bin/sum"
-    mkdir -p "$BUILD_DIR/usr/share/sum"
-    cp -r "$SCRIPT_DIR/tools/sum/ExternalData" "$BUILD_DIR/usr/share/sum/"
-    echo "  Installed SUM binary and ExternalData"
-fi
+# usr/bin/sum is busybox's `sum` applet, an absolute symlink: remove it rather
+# than let cp follow it onto the build host's /bin/busybox.
+rm -f "$BUILD_DIR/usr/bin/sum"
+mkdir -p "$BUILD_DIR/opt/sum"
+cp "$SCRIPT_DIR/tools/sum/sum" "$BUILD_DIR/opt/sum/sum"
+chmod +x "$BUILD_DIR/opt/sum/sum"
+cp -r "$SCRIPT_DIR/tools/sum/ExternalData" "$BUILD_DIR/opt/sum/"
+ln -s /opt/sum/sum "$BUILD_DIR/usr/bin/sum"
+# sum -v exits 5 ("no command") once it has run; a loader failure is 127.
+# It writes sum.log to its working directory: run it in the image's /tmp.
+(cd "$BUILD_DIR/tmp" && image_glibc_run "$BUILD_DIR/opt/sum/sum" -v >sum-v.log 2>&1) || true
+rm -f "$BUILD_DIR/tmp/sum.log"
+grep -q 'Supermicro Update Manager' "$BUILD_DIR/tmp/sum-v.log" \
+    || { echo "ERROR: sum does not run on the image's glibc:"; cat "$BUILD_DIR/tmp/sum-v.log"; exit 1; }
+echo "  $(head -1 "$BUILD_DIR/tmp/sum-v.log") — runs on the image's glibc"
+rm -f "$BUILD_DIR/tmp/sum-v.log"
 
 # Install mlxup (Mellanox firmware update tool)
 echo "Installing mlxup..."
@@ -204,7 +253,11 @@ if [ -f "$SCRIPT_DIR/tools/mlxup" ]; then
     rm -f "$BUILD_DIR/usr/bin/mlxup"
     cp "$SCRIPT_DIR/tools/mlxup" "$BUILD_DIR/usr/bin/mlxup"
     chmod +x "$BUILD_DIR/usr/bin/mlxup"
-    echo "  Installed mlxup"
+    # mlxup is a self-extractor that reads /proc/self/exe, so it cannot be
+    # started through the loader; resolve and relocate it instead (ldd -r).
+    out=$(LD_WARN=yes image_glibc_run --list "$BUILD_DIR/usr/bin/mlxup" 2>&1) && ! grep -q 'undefined symbol' <<<"$out" \
+        || { echo "ERROR: mlxup does not link against the image's glibc:"; echo "$out"; exit 1; }
+    echo "  Installed mlxup (links against the image's glibc)"
 fi
 
 # Copy BIOS files if available

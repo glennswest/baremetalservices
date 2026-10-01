@@ -9,7 +9,10 @@
 #
 # PASS means: the firmware started the image, the kernel ran our init, and
 # the getty banner init writes is on a serial console, and the agent answered GET /health, /system and /boot/order (UEFI only) over the
-# guest's DHCP'd network.
+# guest's DHCP'd network. The guest has an emulated BMC (ipmi-bmc-sim on a
+# KCS interface), and GET /bios/config must show that sum ran on the image's
+# glibc (#14): QEMU's board is not a Supermicro one, so sum itself refuses,
+# but never with a loader error.
 set -uo pipefail
 
 MODE="${1:?usage: boot-ovmf.sh disk|iso|bios IMAGE}"
@@ -49,6 +52,7 @@ esac
 say "booting $(basename "$IMAGE") ($(du -h "$IMAGE" | cut -f1), $ACCEL), API on :$PORT"
 qemu-system-x86_64 -machine q35,accel=$ACCEL -cpu max -smp 2 -m 4096 -display none -no-reboot \
     "${FW[@]}" "${DISK[@]}" \
+    -device ipmi-bmc-sim,id=bmc0 -device isa-ipmi-kcs,bmc=bmc0 \
     -netdev user,id=n0,hostfwd=tcp:127.0.0.1:$PORT-:8080 -device e1000e,netdev=n0 \
     -serial file:"$W/serial.log" -serial file:"$W/console.log" &
 QPID=$!
@@ -81,4 +85,10 @@ if [ "$MODE" != bios ]; then
     echo "$bo" | grep -q '"status":"ok"' && echo "$bo" | grep -q '"entries":\[{' || fail "/boot/order: $bo"
     say "/boot/order ok: $(echo "$bo" | grep -o '"boot_current":"[^"]*"')"
 fi
+bc=$(curl -s --max-time 180 "http://127.0.0.1:$PORT/bios/config")
+if grep -Eq 'Error relocating|symbol not found|error while loading shared libraries|not available' <<<"$bc" \
+    || ! grep -q 'Supermicro Update Manager' <<<"$bc"; then
+    fail "/bios/config: sum did not run: $bc"
+fi
+say "/bios/config: sum ran: $(grep -o 'Supermicro Update Manager[^\]*' <<<"$bc" | head -1); $(grep -o 'Error message:[^"]*' <<<"$bc" | sed 's/\\[nt]/ /g' | tr -s ' ' | cut -c1-120)"
 say "PASS"

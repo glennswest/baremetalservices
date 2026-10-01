@@ -203,7 +203,13 @@ The image includes:
 - Hostname from reverse DNS of eth0's address, about 10 s after boot
 - NTP from `pool.ntp.org`: a boot sync bounded to 20 s (the API starts without it), then `ntpd` in the background
 - Getty on ttyS0, ttyS1 and the console at 115200, with a banner giving the API URL
-- Supermicro Update Manager (`sum`) and `mlxup`, from `pxeimage/tools/`
+- Supermicro Update Manager (`sum`, in `/opt/sum` with its `ExternalData`;
+  `/usr/bin/sum` links to it) and `mlxup`, from `pxeimage/tools/`. Both are
+  glibc programs; the image is musl, so it carries a real glibc runtime for
+  them: Debian trixie's `libc6`, `libgcc-s1`, `zlib1g` and `libstdc++6` in
+  `/usr/lib/x86_64-linux-gnu`, with `/lib64/ld-linux-x86-64.so.2` pointing at
+  Debian's loader (Alpine's `gcompat` shim lacks symbols `sum` needs, #14).
+  The build fails if `sum` does not run, or `mlxup` does not link, against it
 - Mellanox ConnectX-3 firmware, downloaded at build time on a best-effort basis (#13)
 
 ### Network Drivers Loaded at Boot
@@ -257,7 +263,9 @@ builds both goldens, and boots each under QEMU the way it is used:
 
 Each passes when the getty banner is on the serial console and the agent
 answers `/health`, `/system` and (UEFI) `/boot/order` over the guest's DHCP'd
-network. `test/boot-ovmf.sh <mode> <image>` runs one.
+network. The guest has an emulated BMC (`ipmi-bmc-sim` on KCS), and
+`/bios/config` must show `sum` ran (it then refuses QEMU's non-Supermicro
+board, but never with a loader error, #14). `test/boot-ovmf.sh <mode> <image>` runs one.
 
 ## Network Boot (stormbootx)
 

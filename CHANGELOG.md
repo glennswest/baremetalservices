@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### 2026-10-01
+- **fix:** `sum` (Supermicro Update Manager) did not run on the image: it is a glibc binary, and the musl image's `/lib64/ld-linux-x86-64.so.2` was Alpine's `gcompat` shim (`Error relocating /usr/bin/sum: mallopt: symbol not found`). The image now carries Debian trixie's glibc runtime (`libc6`, `libgcc-s1`, `zlib1g`, `libstdc++6`, found by name in the Debian index) in `/usr/lib/x86_64-linux-gnu` with `/lib64/ld-linux-x86-64.so.2` pointing at its loader, so `sum` and `mlxup` run unmodified; musl programs never look there. `sum` moves to `/opt/sum` with its `ExternalData` beside it (`/usr/bin/sum` links to it). The build fails if `sum -v` does not run, or `mlxup` does not link, against the image's glibc (#14).
+- **test:** The QEMU boot test gives the guest an emulated BMC (`ipmi-bmc-sim` + KCS) and checks `GET /bios/config` shows `sum` ran (#14).
+
 ### 2026-09-30
 - **docs:** Refreshed README and CLAUDE.md from the code: `PORT` override for the API (web UI fixed on :80, no auth), what `/ipmi/reset`, `/bios`, `/bios/configure` and `/firmware` actually do, the kernel modules `init` loads (SAS, NVMe/TCP, iSCSI), boot behaviour (reverse-DNS hostname, bounded NTP, gettys), the full tool list (`fio`, `iscsiadm`, `sum`, `mlxup`; `flashrom`/`mstflint` best effort), the boot command line, and what the Make targets still do. Filed #12 (i40e/ice listed as supported but never loaded) and #13 (goldens carry no SSH keys or BIOS image).
 - **feat:** `deploy/build-golden.sh baremetalservices|baremetalservices-maint OUT` — the stormcentral media-golden recipe, run unprivileged on dev.g8.lo. `baremetalservices` is the hybrid BIOS+UEFI ISO (BMC virtual CD, USB); `baremetalservices-maint` is a 4096-byte-block GPT disk whose ESP holds a unified kernel image as `\EFI\BOOT\BOOTX64.EFI`, the shape stormbootx claims over NVMe/TCP and chain-loads (#2).
