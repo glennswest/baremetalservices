@@ -44,6 +44,17 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        Supermicro's SUM tarball, which the repo doesn't have) — asked the
        owner on #14 (needs-owner).
 
+### Issue #15 — POST /disks/wipe says ok on an HDD and wipes nothing (in progress 2026-10-01)
+1. [ ] Image: wipefs and sgdisk (Alpine v3.20 main, required).
+2. [ ] wipe.go: per disk — refuse if mounted; wipefs -a each partition and the
+       disk; sgdisk --zap-all; blkdiscard only when rotational=0; zero the
+       first 1 GiB of each old partition and the first/last 64 MiB of the
+       disk; BLKRRPART; verify (no partitions, wipefs finds nothing, head and
+       tail read back zero). Any failure -> HTTP 500, status error.
+3. [ ] Unit tests for the zero-region plan; boot test: AHCI HDD
+       (rotation_rate 7200) + SSD (rotation_rate 1, discard), partition +
+       format via the API, wipe, check.
+
 ### Issue #1 — nvme-cli / fio in the image (fixes pushed 2026-08-09)
 
 ### Open from the docs refresh (2026-09-30)
