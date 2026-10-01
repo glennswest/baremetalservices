@@ -11,18 +11,19 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 
 ## Work plan
 
-### Issue #2 — golden on dev + network boot via stormbootx (P1, in progress)
-1. [ ] API: `GET/POST /bios/config` (sum GetCurrentBiosCfg / ChangeBiosCfg,
-       whole file) and `GET/POST /boot/order` (efibootmgr), with unit tests.
-2. [ ] Build scripts runnable unprivileged on dev: no `/tmp` or `~` use,
-       Fedora `grub2-mkstandalone`, no build-host SSH keys baked in;
-       one entry point `deploy/build.sh` producing the ISO + kernel + initramfs
-       + UEFI loader.
-3. [ ] Register as a stormcentral media/boothelper component and build the
-       golden (`stormcentral component build baremetalservices`).
-4. [ ] stormbootx side: claim a `maint` image (boothost synonym/intent) over
-       NVMe/TCP and chain-load its UEFI loader — filed on stormbootx, this work
-       proposed after it.
-5. [ ] README for all of the above.
+### Issue #2 — golden on dev + network boot via stormbootx (P1)
+1. [x] API: `GET/POST /bios/config` (sum) and `GET/POST /boot/order`
+       (efibootmgr), unit tests (bootconfig.go / bootconfig_test.go).
+2. [x] Build scripts unprivileged on dev; `deploy/build-golden.sh
+       baremetalservices|baremetalservices-maint OUT`.
+3. [x] Goldens (registered live by stormcentral#227, boothelper iso/img with
+       stormipmi): golden-baremetalservices-923ab8556f57393e and
+       golden-baremetalservices-maint-546af68a04a19632 at 610c397.
+4. [x] `sc-build test/run.sh`: both images boot under QEMU (4K disk/OVMF,
+       ISO/OVMF, ISO/SeaBIOS) and the agent answers.
+5. [ ] Pointing boothost/<host> at -maint and back: stormcentral#236
+       (stormbootx needs no change). Then verify on server1 (server3 also
+       waits on stormbootx#56) and close #2.
+6. [x] README.
 
 ### Issue #1 — nvme-cli / fio in the image (fixes pushed 2026-08-09)
