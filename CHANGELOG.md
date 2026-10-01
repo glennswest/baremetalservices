@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-10-01
+- **docs:** In-band `sum` (`/bios/config`, `/bios/configure`) is unproven on X9 blades: without the BIOS's "virtual driver" it needs `sum_bios.ko`, which the image does not carry. Noted in README; #14 stays open at P3 (out-of-band `sum` covers the X9s today).
 - **fix:** `POST /disks/wipe[/{dev}]` reported `ok` on a spinning disk and wiped nothing: `blkdiscard` is a no-op on an HDD and `wipefs` was not in the image. A wipe is now: refuse a mounted/swap/held disk; `wipefs -a` every partition and the disk; `sgdisk --zap-all`; `blkdiscard` only when non-rotational; zero the first and last 64 MiB and the first 1 GiB of every old partition; re-read the partition table; verify (no partitions, no signatures, head and tail read zero). Any failed step or unverified disk returns HTTP 500 with the per-step results (`wipe.go`, #15).
 - **fix:** The image now carries `wipefs` and `sgdisk` (required packages) (#15).
 - **fix:** Several tools in the image could not start because a shared library was missing: `parted` (libdevmapper, so `POST /disks/partition` always failed), `mkfs.ext4`/`e2fsck` (libcom_err, so `POST /disks/format` ext4 failed), `mkfs.xfs`/`xfs_repair` (inih, userspace-rcu), `fio` (libnuma), `iscsiadm`/`iscsid` (libkmod with zstd/xz, libisns), `efibootdump` (libintl). The packages are now in the image (#15).

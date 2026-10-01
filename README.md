@@ -130,7 +130,10 @@ curl -X POST http://server1:8080/ipmi/reset
 # Update Mellanox NIC firmware
 curl -X POST http://server1:8080/firmware/update -d "device=05:00.0"
 
-# Copy one blade's BIOS setup to another (reboot the target to apply)
+# Copy one blade's BIOS setup to another (reboot the target to apply).
+# In-band sum is unproven on X9 (#14): it needs the BIOS's "virtual driver"
+# or sum_bios.ko, which the image lacks. Out-of-band sum against the BMC
+# (from stormcentral's VM) is what has been used on the X9 blades.
 curl -s http://server1:8080/bios/config -o bios.cfg
 curl -X POST --data-binary @bios.cfg http://server2:8080/bios/config
 

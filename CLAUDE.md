@@ -30,7 +30,7 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        waits on stormbootx#56) and close #2.
 6. [x] README.
 
-### Issue #14 — sum is glibc, the image is musl (P1)
+### Issue #14 — sum is glibc, the image is musl (P3, glibc part done)
 1. [x] build.sh ships Debian trixie's glibc runtime (libc6, libgcc-s1, zlib1g,
        libstdc++6) in /usr/lib/x86_64-linux-gnu, /lib64/ld-linux-x86-64.so.2
        -> its loader (was gcompat's shim). sum in /opt/sum + ExternalData.
@@ -41,8 +41,11 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        Driver sum_bios.ko does not exist."
 4. [ ] In-band GetCurrentBiosCfg/ChangeBiosCfg on an X9. If the X9 BIOS has
        no "virtual driver", sum needs sum_bios.ko (built from driver/Source in
-       Supermicro's SUM tarball, which the repo doesn't have) — asked the
-       owner on #14 (needs-owner).
+       Supermicro's SUM tarball, which the repo doesn't have). Owner's answer
+       (2026-10-01): don't wait on the tarball; out-of-band sum from
+       stormcentral's VM already covers the X9s with the OOB key, so in-band
+       sum is a nice-to-have: P3, issue stays open. Next: try in-band on an X9
+       once one boots this image (needs #2 / stormcentral#236).
 
 ### Issue #15 — POST /disks/wipe said ok on an HDD and wiped nothing (done 2026-10-01)
 - wipe.go: refuse in-use disks; wipefs parts + disk; sgdisk --zap-all;
