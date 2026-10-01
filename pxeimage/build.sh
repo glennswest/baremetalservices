@@ -74,23 +74,26 @@ fetch_apk() {
     fi
 }
 
-# Download packages
-curl -sLO "$MSTFLINT_URL/mstflint-4.26.0.1-r0.apk" || true
-curl -sLO "$MAIN_URL/libgcc-13.2.1_git20240309-r1.apk" || true
-curl -sLO "$MAIN_URL/libstdc++-13.2.1_git20240309-r1.apk" || true
-curl -sLO "$MAIN_URL/dmidecode-3.6-r0.apk" || true
-curl -sLO "$MAIN_URL/smartmontools-7.4-r1.apk" || true
-curl -sLO "$COMMUNITY_URL/flashrom-1.3.0-r2.apk" || true
-curl -sLO "$MAIN_URL/ethtool-6.7-r0.apk" || true
-curl -sLO "$MAIN_URL/libmnl-1.0.5-r2.apk" || true
-curl -sLO "$MAIN_URL/pciutils-libs-3.12.0-r1.apk" || true
-curl -sLO "$MAIN_URL/libusb-1.0.27-r0.apk" || true
-curl -sLO "$COMMUNITY_URL/libftdi1-1.5-r3.apk" || true
-curl -sLO "$MAIN_URL/confuse-3.3-r4.apk" || true
-curl -sLO "$COMMUNITY_URL/ipmitool-1.8.19-r1.apk" || true
-curl -sLO "$MAIN_URL/libcrypto3-3.3.6-r0.apk" || true
-curl -sLO "$MAIN_URL/readline-8.2.10-r0.apk" || true
-curl -sLO "$MAIN_URL/libncursesw-6.4_p20240420-r2.apk" || true
+# Download packages. Every one is found by name in the repo index (#1): a
+# pinned revision 404s silently as the CDN moves on, which is how the image
+# shipped an efibootmgr without libefivar (#2). The tools the image exists for
+# are required, so a miss fails the build instead of shipping a broken tool.
+fetch_apk "$MSTFLINT_URL" mstflint
+fetch_apk "$MAIN_URL" libgcc required
+fetch_apk "$MAIN_URL" libstdc++ required
+fetch_apk "$MAIN_URL" dmidecode required
+fetch_apk "$MAIN_URL" smartmontools required
+fetch_apk "$COMMUNITY_URL" flashrom
+fetch_apk "$MAIN_URL" ethtool required
+fetch_apk "$MAIN_URL" libmnl required
+fetch_apk "$MAIN_URL" pciutils-libs required
+fetch_apk "$MAIN_URL" libusb required
+fetch_apk "$COMMUNITY_URL" libftdi1
+fetch_apk "$MAIN_URL" confuse required
+fetch_apk "$COMMUNITY_URL" ipmitool required
+fetch_apk "$MAIN_URL" libcrypto3 required
+fetch_apk "$MAIN_URL" readline required
+fetch_apk "$MAIN_URL" libncursesw required
 # Discover latest linux-lts package version dynamically (CDN rotates versions)
 LINUX_LTS_APK=$(curl -sL "$MAIN_URL/" | grep -o 'linux-lts-[0-9][^"]*\.apk' | sort -V | tail -1)
 if [ -z "$LINUX_LTS_APK" ]; then
@@ -102,12 +105,12 @@ LINUX_LTS_KVER=$(echo "$LINUX_LTS_APK" | sed 's/linux-lts-//;s/-r[0-9]*\.apk//' 
 echo "Kernel module version: $LINUX_LTS_KVER"
 curl -sLO "$MAIN_URL/$LINUX_LTS_APK" || true
 # Disk management tools
-curl -sLO "$MAIN_URL/hdparm-9.65-r2.apk" || true
-curl -sLO "$MAIN_URL/parted-3.6-r2.apk" || true
-curl -sLO "$MAIN_URL/e2fsprogs-1.47.0-r5.apk" || true
-curl -sLO "$MAIN_URL/e2fsprogs-libs-1.47.0-r5.apk" || true
-curl -sLO "$MAIN_URL/xfsprogs-6.8.0-r0.apk" || true
-curl -sLO "$MAIN_URL/dosfstools-4.2-r2.apk" || true
+fetch_apk "$MAIN_URL" hdparm required
+fetch_apk "$MAIN_URL" parted required
+fetch_apk "$MAIN_URL" e2fsprogs required
+fetch_apk "$MAIN_URL" e2fsprogs-libs required
+fetch_apk "$MAIN_URL" xfsprogs required
+fetch_apk "$MAIN_URL" dosfstools required
 # NVMe: nvme-cli is useless without libnvme + libnvme-mi, and both must match
 # the CDN's current version — pin nothing, and fail the build if either is
 # missing rather than shipping a binary that cannot start (issue #1).
@@ -125,22 +128,22 @@ fetch_apk "$MAIN_URL" libaio
 # in v3.20 — it silently skipped as optional).
 fetch_apk "$MAIN_URL" open-iscsi
 fetch_apk "$MAIN_URL" open-iscsi-libs
-curl -sLO "$MAIN_URL/libuuid-2.40.1-r1.apk" || true
-curl -sLO "$MAIN_URL/libblkid-2.40.1-r1.apk" || true
-curl -sLO "$MAIN_URL/libeconf-0.6.3-r0.apk" || true
-curl -sLO "$MAIN_URL/libsmartcols-2.40.1-r1.apk" || true
-curl -sLO "$MAIN_URL/libmount-2.40.1-r1.apk" || true
-curl -sLO "$MAIN_URL/libfdisk-2.40.1-r1.apk" || true
-curl -sLO "$MAIN_URL/lvm2-libs-2.03.23-r3.apk" || true
-curl -sLO "$MAIN_URL/json-c-0.17-r0.apk" || true
+fetch_apk "$MAIN_URL" libuuid required
+fetch_apk "$MAIN_URL" libblkid required
+fetch_apk "$MAIN_URL" libeconf required
+fetch_apk "$MAIN_URL" libsmartcols required
+fetch_apk "$MAIN_URL" libmount required
+fetch_apk "$MAIN_URL" libfdisk required
+fetch_apk "$MAIN_URL" lvm2-libs required
+fetch_apk "$MAIN_URL" json-c required
 # PCI and block device tools
-curl -sLO "$MAIN_URL/pciutils-3.12.0-r1.apk" || true
-curl -sLO "$MAIN_URL/lsblk-2.40.1-r1.apk" || true
-curl -sLO "$MAIN_URL/hwdata-pci-0.382-r0.apk" || true
+fetch_apk "$MAIN_URL" pciutils required
+fetch_apk "$MAIN_URL" lsblk required
+fetch_apk "$MAIN_URL" hwdata-pci required
 # EFI boot manager (for BIOS/PXE configuration)
-curl -sLO "$MAIN_URL/efibootmgr-18-r2.apk" || true
-curl -sLO "$MAIN_URL/efivar-libs-38-r0.apk" || true
-curl -sLO "$MAIN_URL/popt-1.19-r3.apk" || true
+fetch_apk "$MAIN_URL" efibootmgr required
+fetch_apk "$MAIN_URL" efivar-libs required
+fetch_apk "$MAIN_URL" popt required
 # Extract packages (except linux-lts which is handled specially)
 for pkg in *.apk; do
     [ -f "$pkg" ] && [ "$pkg" != "$LINUX_LTS_APK" ] && tar xzf "$pkg" -C "$BUILD_DIR" 2>/dev/null || true
