@@ -7,8 +7,8 @@ A bare metal server management and provisioning system that runs as a boot image
 - **Go binary** serving two HTTP servers simultaneously:
   - **Port 80** - Web UI dashboard with auto-refresh
   - **Port 8080** - JSON REST API
-- **PXE boot image** based on Alpine Linux with custom init script
-- Boots via PXE, discovers hardware, and exposes management interfaces over the network
+- **Boot image** based on Alpine Linux with a custom init script, built as two goldens: a 4K GPT disk for network boot through stormbootx, and a hybrid BIOS+UEFI ISO for BMC virtual CD and USB
+- Boots, discovers hardware, and exposes management interfaces over the network
 
 ## Quick Start
 
