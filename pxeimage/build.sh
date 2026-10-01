@@ -139,6 +139,9 @@ fetch_apk "$MAIN_URL" libsmartcols required
 fetch_apk "$MAIN_URL" libmount required
 fetch_apk "$MAIN_URL" libfdisk required
 fetch_apk "$MAIN_URL" lvm2-libs required
+# libparted links libdevmapper; without it `parted` (POST /disks/partition)
+# dies at startup (found by the #15 boot test).
+fetch_apk "$MAIN_URL" device-mapper-libs required
 fetch_apk "$MAIN_URL" json-c required
 # PCI and block device tools
 fetch_apk "$MAIN_URL" pciutils required
@@ -288,6 +291,24 @@ if ls ~/.ssh/id_*.pub >/dev/null 2>&1; then
     # Fix ownership (will be root:root in the cpio archive)
     chown -R 0:0 "$BUILD_DIR/root/.ssh" 2>/dev/null || true
 fi
+
+# Every musl program and library must find its shared libraries (#15): a
+# missing one only shows when the tool is run (libnvme-mi #1, libefivar #2,
+# libdevmapper #15). The vendor glibc binaries were checked above.
+echo "Checking shared libraries..."
+command -v readelf >/dev/null || { echo "ERROR: readelf (binutils) is needed to check the image"; exit 1; }
+missing=$(cd "$BUILD_DIR" && find bin sbin usr/bin usr/sbin lib usr/lib usr/libexec -type f \
+        -not -path 'lib/modules/*' -not -path "$GLIBC_DIR/*" -not -path 'opt/*' -not -path 'usr/bin/mlxup' 2>/dev/null |
+    while read -r f; do
+        [ "$(head -c4 "$f" | od -An -c | tr -d ' ')" = '177ELF' ] || continue
+        readelf -d "$f" 2>/dev/null | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | while read -r lib; do
+            [ -e "lib/$lib" ] || [ -e "usr/lib/$lib" ] || [ -e "usr/local/lib/$lib" ] || echo "  /$f needs $lib"
+        done
+    done)
+if [ -n "$missing" ]; then
+    echo "ERROR: shared libraries missing from the image:"; echo "$missing"; exit 1
+fi
+echo "  every ELF in the image finds its shared libraries"
 
 # Create initramfs
 echo "Creating initramfs..."
