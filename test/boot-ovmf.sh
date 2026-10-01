@@ -49,8 +49,8 @@ esac
 say "booting $(basename "$IMAGE") ($(du -h "$IMAGE" | cut -f1), $ACCEL), API on :$PORT"
 qemu-system-x86_64 -machine q35,accel=$ACCEL -cpu max -smp 2 -m 4096 -display none -no-reboot \
     "${FW[@]}" "${DISK[@]}" \
-    -netdev user,id=n0,hostfwd=tcp:127.0.0.1:$PORT-:8080 -device virtio-net-pci,netdev=n0 \
-    -serial file:"$W/serial.log" &
+    -netdev user,id=n0,hostfwd=tcp:127.0.0.1:$PORT-:8080 -device e1000e,netdev=n0 \
+    -serial file:"$W/serial.log" -serial file:"$W/console.log" &
 QPID=$!
 
 ok=no
@@ -62,7 +62,9 @@ for ((i = 0; i < BOOT_TIMEOUT; i += 5)); do
     fi
 done
 
-console() { sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/\r//g' "$W/serial.log" | grep -v '^\s*$'; }
+# ttyS0 has the firmware and the kernel; init writes to /dev/console, the
+# last console= on the command line (ttyS1).
+console() { sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/\r//g' "$W/serial.log" "$W/console.log" | grep -v '^\s*$'; }
 fail() { say "FAIL: $*"; say "--- serial console (last 60 lines) ---"; console | tail -60; exit 1; }
 
 [ "$ok" = yes ] || fail "the agent never answered /health within ${BOOT_TIMEOUT}s"

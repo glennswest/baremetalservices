@@ -184,7 +184,9 @@ fi
 
 # Sync time from NTP and set hardware clock
 /bin/busybox echo "Syncing time from NTP..."
-if /bin/busybox ntpd -n -q -p pool.ntp.org 2>/dev/null; then
+# Bounded: with no NTP reachable `ntpd -q` never returns, and the API below
+# would never start (#2).
+if /bin/busybox timeout 20 /bin/busybox ntpd -n -q -p pool.ntp.org 2>/dev/null; then
     /bin/busybox echo "Time synced: $(/bin/busybox date)"
     if /bin/busybox hwclock -w 2>/dev/null; then
         /bin/busybox echo "Hardware clock set: $(/bin/busybox hwclock -r 2>/dev/null)"
