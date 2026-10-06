@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### 2026-10-06
+- **docs:** README states access is open by design (owner's decision, #23/#25): no token or key on any API call, no SSH keys in goldens.
+
 ### 2026-10-01
 - **docs:** In-band `sum` (`/bios/config`, `/bios/configure`) is unproven on X9 blades: without the BIOS's "virtual driver" it needs `sum_bios.ko`, which the image does not carry. Noted in README; #14 stays open at P3 (out-of-band `sum` covers the X9s today).
 - **fix:** `POST /disks/wipe[/{dev}]` reported `ok` on a spinning disk and wiped nothing: `blkdiscard` is a no-op on an HDD and `wipefs` was not in the image. A wipe is now: refuse a mounted/swap/held disk; `wipefs -a` every partition and the disk; `sgdisk --zap-all`; `blkdiscard` only when non-rotational; zero the first and last 64 MiB and the first 1 GiB of every old partition; re-read the partition table; verify (no partitions, no signatures, head and tail read zero). Any failed step or unverified disk returns HTTP 500 with the per-step results (`wipe.go`, #15).

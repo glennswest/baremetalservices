@@ -38,8 +38,9 @@ lists them as optional rows, and minismbd shares them for BMC virtual media.
 
 ## REST API
 
-No authentication: anyone who can reach the blade can wipe its disks or
-reflash its firmware. `GET /` lists every endpoint. All API responses use the format:
+No authentication, by design (owner's decision, #23/#25): the image is a
+throwaway on each use, so no call carries a token or key, and anyone who can
+reach the blade can wipe its disks or reflash its firmware. `GET /` lists every endpoint. All API responses use the format:
 ```json
 {
   "status": "ok",
@@ -218,7 +219,7 @@ The image includes:
   megaraid_sas, hpsa), NVMe plus `nvme_fabrics`/`nvme_tcp` (stormblock volumes and any
   NVMe-oF target), iSCSI (`iscsi_tcp`), IPMI, and the network drivers below
 - Dropbear SSH on port 22: root with an empty password (`-B`). Goldens carry no
-  authorized keys (#13)
+  authorized keys, by design (#23)
 - DHCP on eth0 first (it keeps the address if it already has one), then every
   other interface in the background, retried until the gateway answers.
   mlx4/ixgbe ports are forced to 10G with autoneg off (see `NETWORK.md`)

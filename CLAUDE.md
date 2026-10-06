@@ -11,7 +11,8 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
   goldens and boots them under QEMU.
 - Ships as two stormcentral media goldens (`baremetalservices` ISO,
   `baremetalservices-maint` 4K network-boot disk), boot helpers with stormipmi.
-- API port: `PORT` env (default 8080); web UI fixed on :80. No auth.
+- API port: `PORT` env (default 8080); web UI fixed on :80. No auth, by
+  owner's decision (#23/#25): no token or key on any call. Do not raise auth again.
 
 ## Work plan
 
