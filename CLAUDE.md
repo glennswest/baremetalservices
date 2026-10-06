@@ -68,11 +68,11 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 
 ### Open from the docs refresh (2026-09-30)
 - #12: `init` never loads i40e/ice (README listed them as supported).
-- #13 (in progress 2026-10-06): `build.sh` read inputs from the builder's `$HOME`.
-  1. [ ] SSH keys: drop the `~/.ssh/id_*.pub` copy (no keys by design, #23).
-  2. [ ] CX3 firmware: pinned content.mellanox.com URL + sha256, build fails
+- #13 (1-3 done at db7cfa6, sc-build test/run.sh all PASS; 4 waits on owner): `build.sh` read inputs from the builder's `$HOME`.
+  1. [x] SSH keys: drop the `~/.ssh/id_*.pub` copy (no keys by design, #23).
+  2. [x] CX3 firmware: pinned content.mellanox.com URL + sha256, build fails
          if missing or mismatched.
-  3. [ ] Drop the stale `make deploy` / scp hint.
+  3. [x] Drop the stale `make deploy` / scp hint.
   4. [ ] BIOS X9SRD-F 3.2b: supermicro.com refuses scripted downloads (Akamai
          403), so no pinned vendor URL; the repo is public. Source is an owner
          decision (asked on #13). Until then `~/Downloads` is dropped and the build
