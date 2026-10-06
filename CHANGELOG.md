@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-10-06
+- **docs:** Work plan: #24 (wipe on server1's real HDD) waits on stormcentral#236; a session has no way to boot server1 into the image until then.
 - **docs:** README states access is open by design (owner's decision, #23/#25): no token or key on any API call, no SSH keys in goldens.
 
 ### 2026-10-01
