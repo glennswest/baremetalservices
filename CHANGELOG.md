@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### 2026-10-06
+- **fix:** The ConnectX-3 firmware (2.42.5000, MCX311A-XCAT) is fetched from a pinned content.mellanox.com URL and checked against its sha256; the build fails if it is missing or changed (was best effort, only a warning). The boot test checks `GET /firmware` lists it (#13).
+- **fix:** `build.sh` no longer reads the builder's home: no `~/.ssh/id_*.pub` copied into the image (open by design, #23) and no `~/Downloads/X9SRD6.bin`; it warns loudly when no BIOS file is bundled (#13).
+- **chore:** `build.sh` no longer prints the retired `make deploy` / scp-to-pxe.g10.lo hint (#13).
 - **docs:** Work plan: #24 (wipe on server1's real HDD) waits on stormcentral#236; a session has no way to boot server1 into the image until then.
 - **docs:** README states access is open by design (owner's decision, #23/#25): no token or key on any API call, no SSH keys in goldens.
 

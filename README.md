@@ -235,7 +235,11 @@ The image includes:
   The build fails if `sum` does not run, or `mlxup` does not link, against it
 - The build fails if any program or library in the image is missing a shared
   library it needs (`readelf` over every ELF; needs binutils on the builder)
-- Mellanox ConnectX-3 firmware, downloaded at build time on a best-effort basis (#13)
+- Mellanox ConnectX-3 firmware 2.42.5000 (MCX311A-XCAT) in `/usr/share/firmware/mellanox/`,
+  from a pinned content.mellanox.com URL checked against its sha256: the build
+  fails if it is missing or changed (#13)
+- No BIOS file: `/usr/share/firmware/bios/` is empty in goldens. supermicro.com
+  refuses scripted downloads, so where the X9SRD-F 3.2b file comes from is open (#13)
 
 ### Network Drivers Loaded at Boot
 

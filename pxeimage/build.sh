@@ -197,17 +197,22 @@ rm -rf "$BUILD_DIR/tmp/apk" "$BUILD_DIR/.PKGINFO" "$BUILD_DIR/.SIGN."* 2>/dev/nu
 # below can land. The image's ownership is set at cpio time (-R 0:0).
 chmod -R u+w "$BUILD_DIR"
 
-# Download Mellanox firmware files
-echo "Downloading Mellanox firmware..."
-mkdir -p "$BUILD_DIR/usr/share/firmware/mellanox"
+# Mellanox firmware, from a pinned URL checked against its sha256 (#13): a
+# golden either carries this exact file or the build fails.
+echo "Installing Mellanox firmware..."
 FIRMWARE_DIR="$BUILD_DIR/usr/share/firmware/mellanox"
-# ConnectX-3 firmware (MCX311A-XCAT, PSID MT_1170110023)
+mkdir -p "$FIRMWARE_DIR"
+# ConnectX-3 firmware 2.42.5000 (MCX311A-XCAT, PSID MT_1170110023)
+CX3_URL="https://content.mellanox.com/firmware/fw-ConnectX3-rel-2_42_5000-MCX311A-XCA_Ax-FlexBoot-3.4.752.bin.zip"
+CX3_SHA256="b2a80ce6980c2f9f9d0d2d499a3915e61d5e5fc66c9f98f8ab39d41aca221297"
 CX3_ZIP="$BUILD_DIR/tmp/cx3-fw.zip"
-curl -sL "http://www.mellanox.com/downloads/firmware/fw-ConnectX3-rel-2_42_5000-MCX311A-XCA_Ax-FlexBoot-3.4.752.bin.zip" -o "$CX3_ZIP" 2>/dev/null && \
-    unzip -q -o "$CX3_ZIP" -d "$FIRMWARE_DIR" 2>/dev/null || echo "Warning: Could not download ConnectX-3 firmware"
+curl -sfL "$CX3_URL" -o "$CX3_ZIP" || { echo "ERROR: download of $CX3_URL failed"; exit 1; }
+echo "$CX3_SHA256  $CX3_ZIP" | sha256sum -c --quiet - \
+    || { echo "ERROR: $CX3_URL does not match its pinned sha256"; exit 1; }
+unzip -q -o "$CX3_ZIP" -d "$FIRMWARE_DIR" || { echo "ERROR: cannot unpack $CX3_ZIP"; exit 1; }
 rm -f "$CX3_ZIP"
-# List downloaded firmware
-ls -la "$FIRMWARE_DIR" 2>/dev/null || true
+ls "$FIRMWARE_DIR"/*.bin >/dev/null 2>&1 || { echo "ERROR: no ConnectX-3 firmware .bin in $CX3_URL"; exit 1; }
+ls -la "$FIRMWARE_DIR"
 
 # glibc runtime for the vendor binaries (sum, mlxup), issue #14.
 #
@@ -284,30 +289,20 @@ if [ -f "$SCRIPT_DIR/tools/mlxup" ]; then
     echo "  Installed mlxup (links against the image's glibc)"
 fi
 
-# Copy BIOS files if available
+# BIOS files: only from the checkout (pxeimage/firmware/, not in the repo), never
+# the builder's home (#13). A golden has none today: say so loudly.
 echo "Installing BIOS files..."
-mkdir -p "$BUILD_DIR/usr/share/firmware/bios"
 BIOS_DIR="$BUILD_DIR/usr/share/firmware/bios"
+mkdir -p "$BIOS_DIR"
 # Supermicro X9SRD-F BIOS 3.2b
-if [ -f ~/Downloads/X9SRD6.bin ]; then
-    cp ~/Downloads/X9SRD6.bin "$BIOS_DIR/X9SRD-F_3.2b.bin"
-    echo "  Installed X9SRD-F BIOS 3.2b"
-elif [ -f "$SCRIPT_DIR/firmware/X9SRD-F_3.2b.bin" ]; then
+if [ -f "$SCRIPT_DIR/firmware/X9SRD-F_3.2b.bin" ]; then
     cp "$SCRIPT_DIR/firmware/X9SRD-F_3.2b.bin" "$BIOS_DIR/"
     echo "  Installed X9SRD-F BIOS 3.2b from firmware dir"
+else
+    echo "WARNING: no BIOS file bundled: GET /bios offers no update, POST /bios/update has nothing to apply (#13)"
 fi
-ls -la "$BIOS_DIR" 2>/dev/null || true
 
-# Install SSH authorized keys from user's home directory
-if ls ~/.ssh/id_*.pub >/dev/null 2>&1; then
-    echo "Installing SSH authorized keys..."
-    mkdir -p "$BUILD_DIR/root/.ssh"
-    cat ~/.ssh/id_*.pub > "$BUILD_DIR/root/.ssh/authorized_keys"
-    chmod 700 "$BUILD_DIR/root/.ssh"
-    chmod 600 "$BUILD_DIR/root/.ssh/authorized_keys"
-    # Fix ownership (will be root:root in the cpio archive)
-    chown -R 0:0 "$BUILD_DIR/root/.ssh" 2>/dev/null || true
-fi
+# No SSH authorized keys: the image is open on the lab network by design (#23).
 
 # Every musl program and library must find its shared libraries (#15): a
 # missing one only shows when the tool is run (libnvme-mi #1, libefivar #2,
@@ -339,9 +334,3 @@ cd "$PROJECT_DIR"
 echo "=== Build complete ==="
 echo "Output files in: $OUTPUT_DIR"
 ls -lh "$OUTPUT_DIR/initramfs" "$OUTPUT_DIR/vmlinuz"
-echo ""
-echo "To deploy to PXE server:"
-echo "  make deploy"
-echo "Or manually:"
-echo "  scp -o ProxyJump=admin@192.168.1.88 $OUTPUT_DIR/{vmlinuz,initramfs,pxelinux.0,ldlinux.c32} root@192.168.10.200:/tftpboot/"
-echo "  scp -o ProxyJump=admin@192.168.1.88 $OUTPUT_DIR/pxelinux.cfg/default root@192.168.10.200:/tftpboot/pxelinux.cfg/"

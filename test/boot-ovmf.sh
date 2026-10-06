@@ -103,6 +103,10 @@ if grep -Eq 'Error relocating|symbol not found|error while loading shared librar
 fi
 say "/bios/config: sum ran: $(grep -o 'Supermicro Update Manager[^\]*' <<<"$bc" | head -1); $(grep -o 'Error message:[^"]*' <<<"$bc" | sed 's/\\[nt]/ /g' | tr -s ' ' | cut -c1-120)"
 
+fw=$(curl -s --max-time 30 "http://127.0.0.1:$PORT/firmware")
+grep -q 'fw-ConnectX3-rel-2_42_5000-MCX311A-XCA_Ax-FlexBoot-3.4.752.bin' <<<"$fw" || fail "/firmware: no ConnectX-3 firmware (#13): $fw"
+say "/firmware ok: ConnectX-3 2.42.5000 bundled"
+
 # Disk wipe (#15).
 api() { curl -s --max-time 600 "$@"; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
