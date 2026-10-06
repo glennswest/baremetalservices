@@ -40,16 +40,34 @@ exec >/dev/console 2>&1
 # Wait for drives to appear
 /bin/busybox sleep 3
 
-# Load network drivers
-/bin/busybox modprobe e1000 2>/dev/null
-/bin/busybox modprobe e1000e 2>/dev/null
-/bin/busybox modprobe igb 2>/dev/null
-/bin/busybox modprobe ixgbe 2>/dev/null
-/bin/busybox modprobe r8169 2>/dev/null
-/bin/busybox modprobe virtio_net 2>/dev/null
-/bin/busybox modprobe mlx4_core 2>/dev/null
-/bin/busybox modprobe mlx4_en 2>/dev/null
-/bin/busybox modprobe mlx5_core 2>/dev/null
+# Load network drivers. Named first, so their order decides eth0 on a blade
+# with more than one kind of NIC.
+NIC_DRIVERS="e1000 e1000e igb ixgbe i40e ice r8169 virtio_net mlx4_core mlx4_en mlx5_core"
+for m in $NIC_DRIVERS; do
+    /bin/busybox modprobe $m 2>/dev/null
+done
+
+# Coldplug: there is no hotplug helper, so nothing loads a driver for a
+# device on its own. Load whatever matches the modalias of every PCI
+# mass-storage (class 01) and network (class 02) device, honouring the
+# /etc/modprobe.d blacklists as Alpine's mdev does, so a controller or NIC
+# missing from the lists above still comes up (#12). Other classes (display,
+# watchdog bridges, ...) are left alone on purpose.
+for dev in /sys/bus/pci/devices/*; do
+    case "$(/bin/busybox cat $dev/class 2>/dev/null)" in
+        0x01*|0x02*) /bin/busybox modprobe -q -b "$(/bin/busybox cat $dev/modalias)" 2>/dev/null ;;
+    esac
+done
+LOADED=""
+for m in $NIC_DRIVERS; do
+    [ -d /sys/module/$m ] && LOADED="$LOADED $m"
+done
+/bin/busybox echo "NIC drivers loaded:$LOADED"
+for iface in /sys/class/net/*/device/driver; do
+    [ -e "$iface" ] || continue
+    n=${iface#/sys/class/net/}
+    /bin/busybox echo "  ${n%%/*}: $(/bin/busybox basename $(/bin/busybox readlink $iface))"
+done
 
 # Load NVMe + fabrics transports. nvme_tcp is what makes stormblock volumes
 # (and any NVMe-oF target) reachable; without it `nvme connect` fails and even

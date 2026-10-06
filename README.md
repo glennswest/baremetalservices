@@ -217,7 +217,11 @@ The image includes:
 - Alpine `linux-lts` kernel with all of its modules; `init` loads (explicit
   `modprobe`, there is no hotplug): AHCI/SATA/SCSI, SAS (mpt3sas, mpt2sas,
   megaraid_sas, hpsa), NVMe plus `nvme_fabrics`/`nvme_tcp` (stormblock volumes and any
-  NVMe-oF target), iSCSI (`iscsi_tcp`), IPMI, and the network drivers below
+  NVMe-oF target), iSCSI (`iscsi_tcp`), IPMI, and the network drivers below.
+  Then it coldplugs: every PCI mass-storage and network device gets the driver
+  its modalias matches (blacklists in `/etc/modprobe.d` honoured), so a
+  controller or NIC missing from those lists still comes up (#12). The console
+  shows `NIC drivers loaded:` and each interface with its driver
 - Dropbear SSH on port 22: root with an empty password (`-B`). Goldens carry no
   authorized keys, by design (#23)
 - DHCP on eth0 first (it keeps the address if it already has one), then every
@@ -243,7 +247,11 @@ The image includes:
 
 ### Network Drivers Loaded at Boot
 
-- Intel: e1000, e1000e, igb, ixgbe (i40e and ice are in the image but never loaded: #12)
+Named, in this order (it decides which NIC is `eth0`), then any other NIC by
+PCI coldplug:
+
+- Intel: e1000, e1000e, igb, ixgbe, i40e (40G), ice (100G; its DDP package
+  `intel/ice/ddp/ice.pkg` is in the base rootfs's `/lib/firmware`)
 - Mellanox: mlx4_core, mlx4_en, mlx5_core
 - Realtek: r8169
 - Virtual: virtio_net

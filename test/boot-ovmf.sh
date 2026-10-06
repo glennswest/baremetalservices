@@ -18,6 +18,10 @@
 # wiped with POST /disks/wipe/{dev} (#15): the wipe must say it verified, the
 # partitions must be gone, and on the host both images must read zero at the
 # head and the tail.
+# NIC drivers (#12): a second NIC, vmxnet3, is in no list init names, so only
+# init's PCI modalias coldplug can bring it up: /network must show an
+# interface driven by vmxnet3. i40e and ice (no QEMU model) must be on init's
+# "NIC drivers loaded:" console line, i.e. they modprobe cleanly.
 set -uo pipefail
 
 MODE="${1:?usage: boot-ovmf.sh disk|iso|bios IMAGE}"
@@ -65,6 +69,7 @@ qemu-system-x86_64 -machine q35,accel=$ACCEL -cpu max -smp 2 -m 4096 -display no
     "${FW[@]}" "${DISK[@]}" "${SCRATCH[@]}" \
     -device ipmi-bmc-sim,id=bmc0 -device isa-ipmi-kcs,bmc=bmc0 \
     -netdev user,id=n0,hostfwd=tcp:127.0.0.1:$PORT-:8080 -device e1000e,netdev=n0 \
+    -netdev user,id=n1,net=10.0.3.0/24 -device vmxnet3,netdev=n1 \
     -serial file:"$W/serial.log" -serial file:"$W/console.log" &
 QPID=$!
 
@@ -80,6 +85,7 @@ done
 # ttyS0 has the firmware and the kernel; init writes to /dev/console, the
 # last console= on the command line (ttyS1).
 console() { sed -e 's/\x1b\[[0-9;?]*[A-Za-z]//g' -e 's/\r//g' "$W/serial.log" "$W/console.log" | grep -av '^\s*$'; }
+json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 fail() { say "FAIL: $*"; say "--- serial console (last 60 lines) ---"; console | tail -60; exit 1; }
 
 [ "$ok" = yes ] || fail "the agent never answered /health within ${BOOT_TIMEOUT}s"
@@ -103,13 +109,23 @@ if grep -Eq 'Error relocating|symbol not found|error while loading shared librar
 fi
 say "/bios/config: sum ran: $(grep -o 'Supermicro Update Manager[^\]*' <<<"$bc" | head -1); $(grep -o 'Error message:[^"]*' <<<"$bc" | sed 's/\\[nt]/ /g' | tr -s ' ' | cut -c1-120)"
 
+# NIC drivers (#12).
+nics=$(console | grep -a -m1 'NIC drivers loaded:')
+for m in i40e ice e1000e; do
+    grep -qw "$m" <<<"$nics" || fail "NIC drivers: $m not loaded: '$nics'"
+done
+net=$(curl -s --max-time 30 "http://127.0.0.1:$PORT/network")
+drv=$(json "' '.join(sorted(x['name']+'='+x['driver'] for x in d['data'] if x.get('driver')))" <<<"$net") || fail "/network: $net"
+grep -q '=vmxnet3' <<<"$drv" || fail "NIC drivers: no vmxnet3 interface (coldplug): $drv"
+grep -q 'eth0=e1000e' <<<"$drv" || fail "NIC drivers: eth0 is not the named-first e1000e: $drv"
+say "NIC drivers ok: ${nics#*: }; interfaces $drv"
+
 fw=$(curl -s --max-time 30 "http://127.0.0.1:$PORT/firmware")
 grep -q 'fw-ConnectX3-rel-2_42_5000-MCX311A-XCA_Ax-FlexBoot-3.4.752.bin' <<<"$fw" || fail "/firmware: no ConnectX-3 firmware (#13): $fw"
 say "/firmware ok: ConnectX-3 2.42.5000 bundled"
 
 # Disk wipe (#15).
 api() { curl -s --max-time 600 "$@"; }
-json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 disks=$(api "http://127.0.0.1:$PORT/disks")
 for kind in hdd ssd; do
     serial=WIPE${kind^^}
