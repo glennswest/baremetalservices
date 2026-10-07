@@ -220,8 +220,7 @@ The image includes:
   NVMe-oF target), iSCSI (`iscsi_tcp`), IPMI, and the network drivers below.
   Then it coldplugs: every PCI mass-storage and network device gets the driver
   its modalias matches (blacklists in `/etc/modprobe.d` honoured), so a
-  controller or NIC missing from those lists still comes up (#12). The console
-  shows `NIC drivers loaded:` and each interface with its driver
+  controller or NIC missing from those lists still comes up (#12)
 - Dropbear SSH on port 22: root with an empty password (`-B`). Goldens carry no
   authorized keys, by design (#23)
 - DHCP on eth0 first (it keeps the address if it already has one), then every

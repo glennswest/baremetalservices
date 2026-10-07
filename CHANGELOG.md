@@ -3,8 +3,8 @@
 ## [Unreleased]
 
 ### 2026-10-06
-- **fix:** `init` never loaded `i40e` or `ice`, so a blade with an Intel 40G/100G NIC came up with no interface. Both are now in the named NIC list, and `init` then coldplugs every PCI mass-storage and network device by its modalias (blacklists honoured), so a NIC or controller missing from the list still gets its driver. The console prints the NIC drivers loaded and each interface's driver (#12).
-- **test:** The boot test adds a vmxnet3 NIC, which only coldplug can bring up, and checks `/network` shows it, that `eth0` is still the named-first e1000e, and that `i40e` and `ice` loaded (#12).
+- **fix:** `init` never loaded `i40e` or `ice`, so a blade with an Intel 40G/100G NIC came up with no interface. Both are now in the named NIC list, and `init` then coldplugs every PCI mass-storage and network device by its modalias (blacklists honoured), so a NIC or controller missing from the list still gets its driver. (#12).
+- **test:** The boot test adds a vmxnet3 NIC, which only coldplug can bring up, and checks `/network` shows it, that `eth0` is still the named-first e1000e, and that `i40e` and `ice` loaded (their banners in the kernel log) (#12).
 - **fix:** The ConnectX-3 firmware (2.42.5000, MCX311A-XCAT) is fetched from a pinned content.mellanox.com URL and checked against its sha256; the build fails if it is missing or changed (was best effort, only a warning). The boot test checks `GET /firmware` lists it (#13).
 - **fix:** `build.sh` no longer reads the builder's home: no `~/.ssh/id_*.pub` copied into the image (open by design, #23) and no `~/Downloads/X9SRD6.bin`; it warns loudly when no BIOS file is bundled (#13).
 - **chore:** `build.sh` no longer prints the retired `make deploy` / scp-to-pxe.g10.lo hint (#13).

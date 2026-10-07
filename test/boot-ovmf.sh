@@ -20,8 +20,8 @@
 # head and the tail.
 # NIC drivers (#12): a second NIC, vmxnet3, is in no list init names, so only
 # init's PCI modalias coldplug can bring it up: /network must show an
-# interface driven by vmxnet3. i40e and ice (no QEMU model) must be on init's
-# "NIC drivers loaded:" console line, i.e. they modprobe cleanly.
+# interface driven by vmxnet3. i40e and ice (no QEMU model) must have loaded:
+# their banners are in the kernel log on the serial console.
 set -uo pipefail
 
 MODE="${1:?usage: boot-ovmf.sh disk|iso|bios IMAGE}"
@@ -110,15 +110,14 @@ fi
 say "/bios/config: sum ran: $(grep -o 'Supermicro Update Manager[^\]*' <<<"$bc" | head -1); $(grep -o 'Error message:[^"]*' <<<"$bc" | sed 's/\\[nt]/ /g' | tr -s ' ' | cut -c1-120)"
 
 # NIC drivers (#12).
-nics=$(console | grep -a -m1 'NIC drivers loaded:')
-for m in i40e ice e1000e; do
-    grep -qw "$m" <<<"$nics" || fail "NIC drivers: $m not loaded: '$nics'"
+for m in 'i40e: Intel(R) Ethernet Connection XL710' 'ice: Intel(R) Ethernet Connection E800'; do
+    console | grep -aqF "$m" || fail "NIC drivers: ${m%%:*} not loaded (no '$m' in the kernel log)"
 done
 net=$(curl -s --max-time 30 "http://127.0.0.1:$PORT/network")
 drv=$(json "' '.join(sorted(x['name']+'='+x['driver'] for x in d['data'] if x.get('driver')))" <<<"$net") || fail "/network: $net"
 grep -q '=vmxnet3' <<<"$drv" || fail "NIC drivers: no vmxnet3 interface (coldplug): $drv"
 grep -q 'eth0=e1000e' <<<"$drv" || fail "NIC drivers: eth0 is not the named-first e1000e: $drv"
-say "NIC drivers ok: ${nics#*: }; interfaces $drv"
+say "NIC drivers ok: i40e and ice loaded; interfaces $drv"
 
 fw=$(curl -s --max-time 30 "http://127.0.0.1:$PORT/firmware")
 grep -q 'fw-ConnectX3-rel-2_42_5000-MCX311A-XCA_Ax-FlexBoot-3.4.752.bin' <<<"$fw" || fail "/firmware: no ConnectX-3 firmware (#13): $fw"

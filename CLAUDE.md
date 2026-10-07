@@ -69,7 +69,9 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 ### Open from the docs refresh (2026-09-30)
 - #12: `init` never loads i40e/ice (README listed them as supported).
   1. [x] init: i40e/ice in the named NIC list; PCI class 01/02 modalias
-         coldplug (`modprobe -q -b`); console line `NIC drivers loaded:`.
+         coldplug (`modprobe -q -b`). (A `NIC drivers loaded:` echo was
+         dropped: init's echoes never reach the QEMU serial logs; the test
+         reads the kernel's driver banners instead.)
   2. [ ] sc-build test/run.sh: vmxnet3 NIC up by coldplug, i40e/ice loaded,
          eth0 still e1000e, in all three boots.
 - #13 (1-3 done at db7cfa6, sc-build test/run.sh all PASS; 4 waits on owner): `build.sh` read inputs from the builder's `$HOME`.

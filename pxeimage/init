@@ -58,16 +58,6 @@ for dev in /sys/bus/pci/devices/*; do
         0x01*|0x02*) /bin/busybox modprobe -q -b "$(/bin/busybox cat $dev/modalias)" 2>/dev/null ;;
     esac
 done
-LOADED=""
-for m in $NIC_DRIVERS; do
-    [ -d /sys/module/$m ] && LOADED="$LOADED $m"
-done
-/bin/busybox echo "NIC drivers loaded:$LOADED"
-for iface in /sys/class/net/*/device/driver; do
-    [ -e "$iface" ] || continue
-    n=${iface#/sys/class/net/}
-    /bin/busybox echo "  ${n%%/*}: $(/bin/busybox basename $(/bin/busybox readlink $iface))"
-done
 
 # Load NVMe + fabrics transports. nvme_tcp is what makes stormblock volumes
 # (and any NVMe-oF target) reachable; without it `nvme connect` fails and even
