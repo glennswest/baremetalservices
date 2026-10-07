@@ -67,13 +67,14 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 ### Issue #1 — nvme-cli / fio in the image (fixes pushed 2026-08-09)
 
 ### Open from the docs refresh (2026-09-30)
-- #12: `init` never loads i40e/ice (README listed them as supported).
+- #12 (done 2026-10-06 at 0d5ffbd, closed): `init` never loaded i40e/ice.
   1. [x] init: i40e/ice in the named NIC list; PCI class 01/02 modalias
          coldplug (`modprobe -q -b`). (A `NIC drivers loaded:` echo was
          dropped: init's echoes never reach the QEMU serial logs; the test
          reads the kernel's driver banners instead.)
-  2. [ ] sc-build test/run.sh: vmxnet3 NIC up by coldplug, i40e/ice loaded,
-         eth0 still e1000e, in all three boots.
+  2. [x] sc-build test/run.sh all PASS at 0d5ffbd: vmxnet3 up by coldplug
+         (eth1), i40e/ice loaded, eth0 still e1000e, in all three boots.
+         Not tried on a real XL710/E810 card (none known in the fleet).
 - #13 (1-3 done at db7cfa6, sc-build test/run.sh all PASS; 4 waits on owner): `build.sh` read inputs from the builder's `$HOME`.
   1. [x] SSH keys: drop the `~/.ssh/id_*.pub` copy (no keys by design, #23).
   2. [x] CX3 firmware: pinned content.mellanox.com URL + sha256, build fails
