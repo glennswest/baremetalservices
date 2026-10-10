@@ -57,12 +57,12 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
   libs; build.sh now fails on any missing NEEDED lib (readelf).
 - Not tested on a real blade (server1's ST2000DM008) yet.
 
-### Issue #24 — verify POST /disks/wipe on server1's real HDD (P3, blocked)
-- Checked 2026-10-06: server1 isn't running the image (:8080 closed), and it is
-  a shared test machine (in a `test` lease). A session can't boot it into the
-  image: no maint path yet (stormcentral#236) and no BMC/virtual-CD access.
-  Proposed --after stormcentral#236. When it lands: lease server1,
-  `testhost maint server1`, then run the four checks in #24 together with #2 step 5.
+### Issue #24 — verify POST /disks/wipe on server1's real HDD (P3, in progress 2026-10-10)
+- stormcentral#236 landed (`testhost maint`). Plan: lease server1,
+  `testhost maint server1 --power-cycle`, run the four checks in #24 (wipe sda
+  ok/verified/no blkdiscard; no partitions after; boot/mounted disk refused;
+  SSD/NVMe gets blkdiscard), also #2 step 5 (/health, /boot/order), then
+  `testhost maint server1 --off --power-cycle` and release the lease.
 
 ### Issue #1 — nvme-cli / fio in the image (fixes pushed 2026-08-09)
 
