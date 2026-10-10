@@ -70,6 +70,17 @@ func TestDiskPartitionsAndInUse(t *testing.T) {
 	if why := diskInUse("sdz", parts); why != "/dev/sdz2 is held by dm-0" {
 		t.Fatalf("diskInUse = %q", why)
 	}
+
+	// #24: a mounted partition and an active swap disk are refused too.
+	oldM, oldS := procMounts, procSwaps
+	procMounts, procSwaps = filepath.Join(root, "mounts"), filepath.Join(root, "swaps")
+	defer func() { procMounts, procSwaps = oldM, oldS }()
+	write("mounts", "/dev/sdy1 / ext4 rw 0 0\n/dev/sdz1 /mnt ext4 rw 0 0")
+	write("swaps", "Filename Type Size Used Priority\n/dev/sdz partition 1024 0 -2")
+	want2 := "/dev/sdz1 is mounted on /mnt; /dev/sdz is active swap; /dev/sdz2 is held by dm-0"
+	if why := diskInUse("sdz", parts); why != want2 {
+		t.Fatalf("diskInUse = %q, want %q", why, want2)
+	}
 	if res := wipeDisk("nosuch"); res.Verified || res.Error == "" {
 		t.Fatalf("wipeDisk(nosuch) = %+v, want an error", res)
 	}

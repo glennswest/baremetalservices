@@ -34,8 +34,13 @@ const (
 	blkflsbuf         = 0x1261   // BLKFLSBUF: drop the device's page cache
 )
 
-// sysBlockDir is /sys/block; tests point it at a fake tree.
-var sysBlockDir = "/sys/block"
+// sysBlockDir is /sys/block, procMounts and procSwaps the kernel's mount and
+// swap tables; tests point them at fakes.
+var (
+	sysBlockDir = "/sys/block"
+	procMounts  = "/proc/mounts"
+	procSwaps   = "/proc/swaps"
+)
 
 type partRange struct {
 	Name  string
@@ -146,7 +151,7 @@ func diskInUse(disk string, parts []partRange) string {
 		names = append(names, p.Name)
 	}
 	var why []string
-	for _, src := range []string{"/proc/mounts", "/proc/swaps"} {
+	for _, src := range []string{procMounts, procSwaps} {
 		b, _ := os.ReadFile(src)
 		for _, line := range strings.Split(string(b), "\n") {
 			f := strings.Fields(line)
@@ -155,7 +160,7 @@ func diskInUse(disk string, parts []partRange) string {
 			}
 			for _, n := range names {
 				if f[0] == "/dev/"+n {
-					if src == "/proc/swaps" {
+					if src == procSwaps {
 						why = append(why, "/dev/"+n+" is active swap")
 					} else {
 						why = append(why, "/dev/"+n+" is mounted on "+f[1])
