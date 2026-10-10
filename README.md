@@ -167,6 +167,11 @@ to its steps (`step`, `ok`, `output`), `rotational`, `partitions_before` and
 `verified`. A wipe removes the partition tables and filesystems; it does not
 overwrite all the data (that is `/disks/secure-erase/{dev}`).
 
+Verified on a real blade (#24, 2026-10-10): server1's Seagate ST2000DM008
+HDD (4 partitions) wiped in the -maint image to `ok`, `verified: true`, no
+`blkdiscard` step, no partitions left. The SSD path (blkdiscard) is checked
+under QEMU only.
+
 
 ## Web UI
 

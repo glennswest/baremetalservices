@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### 2026-10-10
+- **test:** `diskInUse` unit test covers a mounted partition and active swap, not only a device-mapper holder (`/proc/mounts` and `/proc/swaps` can be replaced in tests) (#24).
+- **docs:** #24 verified on server1 (X9, ST2000DM008 HDD) booted into `golden-baremetalservices-maint-b2654a0eb18517c8` (7a091f0) with `testhost maint`: `POST /disks/wipe/sda` gave `ok`, `verified: true`, no blkdiscard; no partitions afterwards. `/health` and `/boot/order` answered (#2 step 5).
+
 ### 2026-10-06
 - **fix:** `init` never loaded `i40e` or `ice`, so a blade with an Intel 40G/100G NIC came up with no interface. Both are now in the named NIC list, and `init` then coldplugs every PCI mass-storage and network device by its modalias (blacklists honoured), so a NIC or controller missing from the list still gets its driver. (#12).
 - **test:** The boot test adds a vmxnet3 NIC, which only coldplug can bring up, and checks `/network` shows it, that `eth0` is still the named-first e1000e, and that `i40e` and `ice` loaded (their banners in the kernel log) (#12).

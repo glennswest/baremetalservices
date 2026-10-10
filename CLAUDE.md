@@ -27,8 +27,9 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 4. [x] `sc-build test/run.sh`: both images boot under QEMU (4K disk/OVMF,
        ISO/OVMF, ISO/SeaBIOS) and the agent answers.
 5. [ ] Pointing boothost/<host> at -maint and back: stormcentral#236
-       (stormbootx needs no change). Then verify on server1 (server3 also
-       waits on stormbootx#56) and close #2.
+       landed (`testhost maint`); server1 verified 2026-10-10 (#24):
+       boots the -maint golden, /health and /boot/order answer, `--off`
+       restores 11.61. Left: server3 (stormbootx#56 closed), then close #2.
 6. [x] README.
 
 ### Issue #14 — sum is glibc, the image is musl (P3, glibc part done)
@@ -57,12 +58,15 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
   libs; build.sh now fails on any missing NEEDED lib (readelf).
 - Not tested on a real blade (server1's ST2000DM008) yet.
 
-### Issue #24 — verify POST /disks/wipe on server1's real HDD (P3, in progress 2026-10-10)
-- stormcentral#236 landed (`testhost maint`). Plan: lease server1,
-  `testhost maint server1 --power-cycle`, run the four checks in #24 (wipe sda
-  ok/verified/no blkdiscard; no partitions after; boot/mounted disk refused;
-  SSD/NVMe gets blkdiscard), also #2 step 5 (/health, /boot/order), then
-  `testhost maint server1 --off --power-cycle` and release the lease.
+### Issue #24 — wipe on server1's real HDD (done 2026-10-10)
+- server1 leased, `testhost maint server1 --power-cycle` →
+  golden-baremetalservices-maint-b2654a0eb18517c8 (7a091f0); agent answered
+  /health, /system, /boot/order (#2 step 5 on server1 done too).
+- POST /disks/wipe/sda (ST2000DM008, sda1-4): ok, verified, rotational, no
+  blkdiscard; /disks/detail/sda no partitions. `--off`, lease released.
+- Not on hardware: in-use refusal (the image runs from RAM, nothing mounts
+  sda; no API mounts) -> unit test now covers mount/swap/holder. SSD/NVMe
+  blkdiscard: server1 has none; QEMU boot test covers it.
 
 ### Issue #1 — nvme-cli / fio in the image (fixes pushed 2026-08-09)
 
