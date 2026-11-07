@@ -12,7 +12,7 @@ A bare metal server management and provisioning system that runs as a boot image
 
 ## Quick Start
 
-Built on the build box (dev.g8.lo) as two stormcentral **media goldens** from
+Built on a fresh `sc-build` VM (dev.g8.lo is retired) as two stormcentral **media goldens** from
 one image build — never on server1, never with podman, no `make deploy`:
 
 | Golden | Bytes | Used for |
@@ -21,10 +21,10 @@ one image build — never on server1, never with podman, no `make deploy`:
 | `baremetalservices-maint` | GPT disk at **4096-byte blocks**, one ESP holding a unified kernel image as `\EFI\BOOT\BOOTX64.EFI` | Network boot through stormbootx at NIC speed; boot helper `img` |
 
 ```bash
-# Build and boot-test both images on dev (from your checkout, after git push)
+# Build and boot-test both images (from your checkout, after git push)
 sc-build test/run.sh
 
-# Request the goldens (stormcentral runs deploy/build-golden.sh on dev)
+# Request the goldens (stormcentral runs deploy/build-golden.sh on a build VM)
 stormcentral component build baremetalservices      --url http://stormcentral.g8.lo
 stormcentral component build baremetalservices-maint --url http://stormcentral.g8.lo
 
@@ -66,13 +66,13 @@ reach the blade can wipe its disks or reflash its firmware. `GET /` lists every 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/ipmi` | IPMI info (IP, MAC, IP source, subnet, gateway, users) |
-| POST | `/ipmi/reset` | Reset IPMI user 2 to ADMIN/ADMIN with full access, LAN to DHCP, then `mc reset cold` so it takes effect |
+| POST | `/ipmi/reset` | Reset IPMI user 2 to ADMIN/ADMIN with full access, LAN to DHCP, then `mc reset cold` so it takes effect. This overwrites a configured BMC login with the factory one; the owner wants the configured login kept (#32, open) |
 
 ### Disk Management
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/disks` | List all disks with details (serial, firmware, SMART health, media type, temperature, power-on hours) |
+| GET | `/disks` | List all disks with details (serial, firmware, SMART health, media type, temperature, power-on hours). The full SMART set as numbers (`smartctl -x -j`) is not exposed yet (#30) |
 | GET | `/disks/detail/{dev}` | Detailed info for a specific disk (e.g., `/disks/detail/sda`) |
 | POST | `/disks/partition/{dev}` | Create partition table. Parameters: `label=gpt\|msdos` (default: gpt) |
 | POST | `/disks/format/{dev}` | Format a partition. Parameters: `fstype=ext4\|xfs\|vfat` (default: ext4) |
@@ -233,6 +233,7 @@ The image includes:
   mlx4/ixgbe ports are forced to 10G with autoneg off (see `NETWORK.md`)
 - Hostname from reverse DNS of eth0's address, about 10 s after boot
 - NTP from `pool.ntp.org`: a boot sync bounded to 20 s (the API starts without it), then `ntpd` in the background
+- No ACPI power-button handling: the ACPI power button is ignored, so leaving maintenance ends in a hard power cut (#31, open)
 - Getty on ttyS0, ttyS1 and the console at 115200, with a banner giving the API URL
 - Supermicro Update Manager (`sum`, in `/opt/sum` with its `ExternalData`;
   `/usr/bin/sum` links to it) and `mlxup`, from `pxeimage/tools/`. Both are
@@ -266,7 +267,7 @@ PCI coldplug:
 unprivileged and keeps everything under `$TMPDIR` and `OUT`:
 
 1. `go build` the agent (static, linux/amd64).
-2. `pxeimage/build.sh`: Alpine 3.20 rootfs + `linux-lts` kernel and all its
+2. `pxeimage/build.sh`: Alpine 3.20 rootfs (end of life since 2026-04-01, so no security fixes; move to 3.22/3.23 is #33) + `linux-lts` kernel and all its
    modules + tools, every package found by name in the Alpine index (a missing
    required package fails the build), packed as a root-owned gzip cpio.
 3. `baremetalservices`: `pxeimage/build-iso.sh` → `OUT/boot/baremetalservices.iso`.
@@ -289,7 +290,7 @@ from the retired TFTP deploy.
 Build host needs: Go 1.24+, curl, cpio, gzip, unzip, depmod, xorriso,
 grub(2)-mkstandalone with x86_64-efi modules, mtools, dosfstools, objcopy and
 the systemd-boot EFI stub (`/usr/lib/systemd/boot/efi/linuxx64.efi.stub`),
-python3. dev.g8.lo (Fedora 43) has them all.
+python3. The build VM (Fedora 43 template) has them all.
 
 ### Test
 

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-11-07
+- **docs:** Refreshed README and CLAUDE.md against the code (no code changed since 2026-10-15): build runs on a fresh sc-build VM (dev retired); documented open gaps #30 (SMART numbers), #31 (power button), #32 (`/ipmi/reset` overwrites the BMC login), #33 (Alpine 3.20 EOL); open issues listed in the work plan.
 - **docs:** #13 closed (keys, CX3 firmware, deploy hint done at db7cfa6); the BIOS file is tracked on #28 alone.
 - **docs:** #2 step 5: server3's -maint boot handed to the master (`wait-hardware`), since `testhost maint` is now master/owner only (#829). #24 closed (verified on server1 2026-10-10).
 

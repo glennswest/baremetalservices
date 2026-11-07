@@ -5,7 +5,7 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 (`sum`) and boot-order management over HTTP (API :8080, web UI :80).
 
 - Version: `VERSION` in `Makefile` (1.0.0). No tags yet.
-- Build: on dev.g8.lo through `sc-build` only (cross-project rules). No podman,
+- Build: through `sc-build` only (fresh build VM; dev.g8.lo is retired). No podman,
   no builds on server1; `make deploy` to pxe.g10.lo is retired.
 - Tests: `go test ./...` (pure parsers); `sc-build test/run.sh` builds both
   goldens and boots them under QEMU.
@@ -35,6 +35,15 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        master with `wait-hardware` (media baremetalservices-maint). Pass:
        /health, /system, /boot/order answer on server3, then `--off`.
 6. [x] README.
+
+### Open issues not yet worked (docs refresh 2026-11-07; no code changed since 2026-10-15)
+- #32 (P1): `handleIPMIReset` (main.go) writes ADMIN/ADMIN itself; keep the configured login instead.
+- #33 (P2): `pxeimage/build.sh` pulls Alpine v3.20 (EOL 2026-04-01); move to 3.22/3.23.
+- #30 (P2): `/disks` full SMART set as numbers (`smartctl -x -j`).
+- #31: maint UKI ignores the ACPI power button (needs acpid or an input reader running poweroff).
+- #27 (P3): init's boot messages do not reach the serial consoles.
+- #28 (P3): decision on where the X9SRD-F BIOS 3.2b file comes from.
+- #29 (P3): this file's #2 notes are stale once stormcentral#236/stormbootx#56 closed (done above).
 
 ### Issue #14 — sum is glibc, the image is musl (P3, glibc part done)
 1. [x] build.sh ships Debian trixie's glibc runtime (libc6, libgcc-s1, zlib1g,
