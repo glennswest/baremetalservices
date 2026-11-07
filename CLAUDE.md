@@ -30,6 +30,10 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        landed (`testhost maint`); server1 verified 2026-10-10 (#24):
        boots the -maint golden, /health and /boot/order answer, `--off`
        restores 11.61. Left: server3 (stormbootx#56 closed), then close #2.
+       2026-11-07: a session token can no longer run `testhost maint`
+       (master/owner only, #829), so server3's boot is handed to the
+       master with `wait-hardware` (media baremetalservices-maint). Pass:
+       /health, /system, /boot/order answer on server3, then `--off`.
 6. [x] README.
 
 ### Issue #14 — sum is glibc, the image is musl (P3, glibc part done)

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### 2026-11-07
+- **docs:** #2 step 5: server3's -maint boot handed to the master (`wait-hardware`), since `testhost maint` is now master/owner only (#829). #24 closed (verified on server1 2026-10-10).
+
 ### 2026-10-10
 - **test:** `diskInUse` unit test covers a mounted partition and active swap, not only a device-mapper holder (`/proc/mounts` and `/proc/swaps` can be replaced in tests) (#24).
 - **docs:** #24 verified on server1 (X9, ST2000DM008 HDD) booted into `golden-baremetalservices-maint-b2654a0eb18517c8` (7a091f0) with `testhost maint`: `POST /disks/wipe/sda` gave `ok`, `verified: true`, no blkdiscard; no partitions afterwards. `/health` and `/boot/order` answered (#2 step 5).
