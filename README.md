@@ -78,6 +78,7 @@ reach the blade can wipe its disks or reflash its firmware. `GET /` lists every 
 | POST | `/disks/format/{dev}` | Format a partition. Parameters: `fstype=ext4\|xfs\|vfat` (default: ext4) |
 | POST | `/disks/wipe` | Wipe and verify ALL disks (see below) |
 | POST | `/disks/wipe/{dev}` | Wipe and verify one whole disk (see below) |
+| POST | `/disks/image/{dev}` | Write a raw boot image to a whole disk (a boot stick) and verify it (see below) |
 | POST | `/disks/secure-erase/{dev}` | ATA Secure Erase (hdparm) for SATA, nvme format for NVMe |
 
 ### Firmware & BIOS
@@ -125,6 +126,11 @@ curl -X POST http://server1:8080/disks/secure-erase/sda
 # Wipe a specific disk
 curl -X POST http://server1:8080/disks/wipe/sda
 
+# Upgrade a node's USB boot stick (sdb here) to a new stormbootx image,
+# keeping its stormboot/local.conf (and name/tag) — sha256 is required
+curl -X POST http://forge1:8080/disks/image/sdb \
+  -d url=http://server/stormbootx-rustnic-usb.img -d sha256=<64 hex> -d keep_local_conf=true
+
 # Reset IPMI credentials
 curl -X POST http://server1:8080/ipmi/reset
 
@@ -171,6 +177,34 @@ Verified on a real blade (#24, 2026-10-10): server1's Seagate ST2000DM008
 HDD (4 partitions) wiped in the -maint image to `ok`, `verified: true`, no
 `blkdiscard` step, no partitions left. The SSD path (blkdiscard) is checked
 under QEMU only.
+
+An image write (`POST /disks/image/{dev}`, #36) puts a raw disk image — a
+stormbootx golden's `boot/<golden>-usb.img`, say — onto a whole disk, so a
+node's boot stick is upgraded from the maintenance image instead of being
+served. Parameters (form or query): `url=` (http/https, required),
+`sha256=` (64 hex digits, required), `keep_local_conf=true` (optional). One
+write runs at a time. The steps:
+
+1. refuse a disk that is mounted, used as swap, held by device-mapper/md, or
+   carries a stormblock slab (`STRMSLAB` at its start or at a partition's
+   start) — the refusals `stormbootx-stick` makes (HTTP 409)
+2. `keep_local_conf`: read `stormboot/local.conf` and `stormboot.conf` off
+   the old stick's ESP (mounted read-only)
+3. download the image into RAM; refuse it unless its sha256 is the given one
+   and it fits the disk (and free memory) (HTTP 422; a failed download is 502)
+4. a GPT image must have its GPT at the disk's logical block size (HTTP 422)
+5. refuse again, zero the old disk's last MiB, write the image, fsync
+6. read the written range back past the page cache and compare its sha256
+7. GPT: `sgdisk -e` (backup GPT to the end of the disk) and `sgdisk -v` must
+   find no problems; re-read the partition table
+8. `keep_local_conf`: write the old `local.conf` onto the new ESP, plus a
+   `name =`/`tag =` the old `stormboot.conf` had and the new one drops
+
+Any failed step fails the request (HTTP 500 unless said above) with
+`status: error`; `data` has the steps so far (`step`, `ok`, `output`),
+`written`, `sha256`, `verified`, `gpt` and `local_conf_kept`. The image
+loads USB host controllers and `usb-storage`/`uas` at boot so a stick shows
+up. Checked under QEMU (a stick on xhci); not yet on a real node.
 
 
 ## Web UI
