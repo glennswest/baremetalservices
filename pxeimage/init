@@ -55,9 +55,18 @@ done
 # watchdog bridges, ...) are left alone on purpose.
 for dev in /sys/bus/pci/devices/*; do
     case "$(/bin/busybox cat $dev/class 2>/dev/null)" in
-        0x01*|0x02*) /bin/busybox modprobe -q -b "$(/bin/busybox cat $dev/modalias)" 2>/dev/null ;;
+        0x01*|0x02*|0x0c03*) /bin/busybox modprobe -q -b "$(/bin/busybox cat $dev/modalias)" 2>/dev/null ;;
     esac
 done
+
+# USB mass storage (#36): a node's boot stick is a USB disk, and
+# POST /disks/image/{dev} writes its new image onto it. Class 0c03 (USB host
+# controllers) is coldplugged above; the host drivers are named too, then
+# usb-storage and uas, which bind to the stick once the bus has enumerated.
+for m in xhci_pci ehci_pci uhci_hcd ohci_pci usb_storage uas; do
+    /bin/busybox modprobe $m 2>/dev/null
+done
+/bin/busybox sleep 3
 
 # Load NVMe + fabrics transports. nvme_tcp is what makes stormblock volumes
 # (and any NVMe-oF target) reachable; without it `nvme connect` fails and even
