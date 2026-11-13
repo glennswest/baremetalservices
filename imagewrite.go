@@ -459,7 +459,11 @@ func writeDiskImage(disk, url, want string, keepLocal bool) (imageWriteResult, i
 		limit = avail
 	}
 	path, n, err := fetchImage(url, want, "", limit)
-	if !step("download", fmt.Sprintf("%d bytes, sha256 %s", n, want), err) {
+	out := ""
+	if err == nil {
+		out = fmt.Sprintf("%d bytes, sha256 %s", n, want)
+	}
+	if !step("download", out, err) {
 		if errors.Is(err, errImage) {
 			return res, http.StatusUnprocessableEntity
 		}

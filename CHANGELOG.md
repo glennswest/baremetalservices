@@ -6,6 +6,7 @@
 - **feat:** `POST /disks/image/{dev}?url=…&sha256=…[&keep_local_conf=true]` writes a raw boot image (a stormbootx `-usb.img`) onto a whole disk: refuses mounted/swap/held/stormblock-slab disks, checks the sha256 and the GPT block size, zeroes the old tail, writes and fsyncs, verifies a read-back sha256 past the page cache, moves the backup GPT to the end (`sgdisk -e`, `-v`), re-reads the partition table, and can carry the old stick's `stormboot/local.conf` and name/tag (`imagewrite.go`, #36).
 - **fix:** `init` loaded no USB drivers, so the image never saw a USB stick: USB host controllers (PCI class 0c03) are coldplugged and `xhci_pci`, `ehci_pci`, `uhci_hcd`, `ohci_pci`, `usb_storage`, `uas` loaded (#36).
 - **test:** Unit tests for the image write (download/sha256/size refusals, write and read-back, local.conf merge); the QEMU boot test writes a new stick image onto an old one on an emulated USB disk, checks the slab and wrong-sha256 refusals, and on the host the new ESP, the carried local.conf and the backup GPT (`test/mkstick.py`) (#36).
+- **fix:** A refused download's step output no longer shows "0 bytes, sha256 <wanted>" before the error (#36).
 
 ### 2026-11-07
 - **docs:** Refreshed README and CLAUDE.md against the code (no code changed since 2026-10-15): build runs on a fresh sc-build VM (dev retired); documented open gaps #30 (SMART numbers), #31 (power button), #32 (`/ipmi/reset` overwrites the BMC login), #33 (Alpine 3.20 EOL); open issues listed in the work plan.
