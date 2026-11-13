@@ -52,8 +52,10 @@ For forge1's stormbootx USB stick (owner: "dont serve it, upgrade the image on u
 4. [x] README, CHANGELOG; sc-build test/run.sh all PASS at d507433 (disk,
        iso, bios: slab and wrong-sha256 refused, stick written over xhci,
        verified, local.conf + name/tag carried, backup GPT at the end).
-5. [ ] Image requested; forge1's real stick is written by the master/owner
-       (booting forge1 into -maint is master/owner only, #829).
+5. [-] Withdrawn by the master 2026-11-13 (owner: a stick upgrade is a file
+       update on its ESP, not a raw image write); issue closed, item rejected.
+       The endpoint and the USB init fix stay on main (images requested at
+       5f9c650); never run on a real node. Remove the endpoint if the owner asks.
 
 ### Open issues not yet worked (docs refresh 2026-11-07; no code changed since 2026-10-15)
 - #32 (P1): `handleIPMIReset` (main.go) writes ADMIN/ADMIN itself; keep the configured login instead.
