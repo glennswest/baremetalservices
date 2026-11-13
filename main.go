@@ -283,6 +283,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		"POST /disks/secure-erase/{dev}": "ATA Secure Erase / NVMe format (DESTRUCTIVE)",
 		"POST /disks/wipe":            "Wipe and verify ALL disks (DESTRUCTIVE)",
 		"POST /disks/wipe/{dev}":      "Wipe and verify one disk (DESTRUCTIVE)",
+		"POST /disks/image/{dev}":     "Write a raw image to a whole disk and verify it (url=, sha256=, keep_local_conf=true) (DESTRUCTIVE)",
 		"GET /firmware":               "List bundled firmware files",
 		"POST /firmware/update":       "Update Mellanox NIC firmware (device=<pci_addr>, optional url=<firmware_url>)",
 		"GET /bios":                   "BIOS version and update availability",
@@ -1745,6 +1746,7 @@ func main() {
 	apiMux.HandleFunc("/disks/secure-erase/", handleDiskSecureErase)
 	apiMux.HandleFunc("/disks/wipe", handleDiskWipe)
 	apiMux.HandleFunc("/disks/wipe/", handleDiskWipe)
+	apiMux.HandleFunc("/disks/image/", handleDiskImage)
 
 	// Web UI server mux (port 80)
 	webMux := http.NewServeMux()
