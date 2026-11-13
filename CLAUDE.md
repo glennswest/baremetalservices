@@ -38,18 +38,22 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 
 ### Issue #36 — POST /disks/image/{dev}: write a boot image to a disk (P0, 2026-11-13)
 For forge1's stormbootx USB stick (owner: "dont serve it, upgrade the image on usb").
-1. [ ] imagewrite.go: `url=`, `sha256=` (required), `keep_local_conf=true`.
+1. [x] imagewrite.go: `url=`, `sha256=` (required), `keep_local_conf=true`.
        Refuse mounted/swap/held/STRMSLAB (as stormbootx-stick); download to
        RAM + sha256; GPT block size must match the device's; zero the old
        tail; write + fsync; read back past the cache and compare sha256;
        `sgdisk -e` + `sgdisk -v`; BLKRRPART; carry `stormboot/local.conf`
        (and a name/tag the new stormboot.conf drops, as stormbootx-stick).
-2. [ ] init: USB host controllers (PCI class 0c03 coldplug) + usb_storage/uas,
+2. [x] init: USB host controllers (PCI class 0c03 coldplug) + usb_storage/uas,
        or the maint image never sees a USB stick.
-3. [ ] Unit tests; QEMU boot test writes an image onto an emulated USB stick
+3. [x] Unit tests; QEMU boot test writes an image onto an emulated USB stick
        (xhci + usb-storage) served from the host, checks refusals (slab disk,
        bad sha256) and, on the host, the backup GPT and carried local.conf.
-4. [ ] README, CHANGELOG; sc-build test/run.sh; image; close #36.
+4. [x] README, CHANGELOG; sc-build test/run.sh all PASS at d507433 (disk,
+       iso, bios: slab and wrong-sha256 refused, stick written over xhci,
+       verified, local.conf + name/tag carried, backup GPT at the end).
+5. [ ] Image requested; forge1's real stick is written by the master/owner
+       (booting forge1 into -maint is master/owner only, #829).
 
 ### Open issues not yet worked (docs refresh 2026-11-07; no code changed since 2026-10-15)
 - #32 (P1): `handleIPMIReset` (main.go) writes ADMIN/ADMIN itself; keep the configured login instead.
