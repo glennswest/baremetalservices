@@ -22,6 +22,13 @@
 # init's PCI modalias coldplug can bring it up: /network must show an
 # interface driven by vmxnet3. i40e and ice (no QEMU model) must have loaded:
 # their banners are in the kernel log on the serial console.
+# Image write (#36): POST /disks/image/{dev} must refuse a disk with a
+# stormblock slab and a wrong sha256 (leaving the stick as it was), then write
+# a new stick image (made by test/mkstick.py, served from the host) onto an
+# old stick on a USB disk (xhci + usb-storage, so init must load USB) with
+# keep_local_conf=true. On the host the stick must hold the new ESP, the old
+# local.conf plus the name/tag the new stormboot.conf drops, and a backup GPT
+# at the end of the disk.
 set -uo pipefail
 
 MODE="${1:?usage: boot-ovmf.sh disk|iso|bios IMAGE}"
@@ -33,7 +40,8 @@ BOOT_TIMEOUT="${BOOT_TIMEOUT:-300}"
 say() { printf '[boot-%s] %s\n' "$MODE" "$*"; }
 W="$(mktemp -d "${TMPDIR:-/tmp}/bms-boot.XXXXXX")"
 QPID=""
-cleanup() { [ -n "$QPID" ] && kill "$QPID" 2>/dev/null; wait 2>/dev/null; rm -rf "$W"; }
+HPID=""
+cleanup() { [ -n "$QPID" ] && kill "$QPID" 2>/dev/null; [ -n "$HPID" ] && kill "$HPID" 2>/dev/null; wait 2>/dev/null; rm -rf "$W"; }
 trap cleanup EXIT
 
 ACCEL=tcg; [[ -w /dev/kvm ]] && ACCEL=kvm
@@ -45,6 +53,34 @@ SCRATCH=(-drive if=none,id=hdd,format=raw,file="$W/hdd.img"
          -device ide-hd,bus=ide.4,drive=hdd,serial=WIPEHDD,rotation_rate=7200
          -drive if=none,id=ssd,format=raw,discard=unmap,file="$W/ssd.img"
          -device ide-hd,bus=ide.5,drive=ssd,serial=WIPESSD,rotation_rate=1)
+
+# Image write (#36): an old boot stick (0.37.0-like: name/tag in
+# stormboot.conf, a local.conf) at the start of a 1 GiB USB disk on xhci, a
+# new image (0.39.0-like: no name/tag) served from the host, and a 64 MiB disk
+# with a stormblock slab header that must be refused.
+mkdir -p "$W/srv" "$W/old" "$W/new"
+head -c 300000 /dev/urandom >"$W/old/BOOTX64.EFI"
+head -c 400000 /dev/urandom >"$W/new/BOOTX64.EFI"
+printf 'version = 0.37.0\nname = forge1\ntag = forge\n' >"$W/old/stormboot.conf"
+printf 'portal = 10.0.0.1\n' >"$W/old/local.conf"
+printf 'version = 0.39.0\n' >"$W/new/stormboot.conf"
+printf '# defaults\n' >"$W/new/local.conf"
+for v in old new; do
+    python3 "$(dirname "$0")/mkstick.py" "$W/$v.img" 32 EFI/BOOT/BOOTX64.EFI="$W/$v/BOOTX64.EFI" \
+        stormboot/stormboot.conf="$W/$v/stormboot.conf" stormboot/local.conf="$W/$v/local.conf" \
+        || { say "FAIL: mkstick $v"; exit 1; }
+done
+mv "$W/new.img" "$W/srv/new.img"
+truncate -s 1G "$W/stick.img"; dd if="$W/old.img" of="$W/stick.img" conv=notrunc status=none
+truncate -s 64M "$W/slab.img"; printf STRMSLAB | dd of="$W/slab.img" conv=notrunc status=none
+SCRATCH+=(-drive if=none,id=slab,format=raw,file="$W/slab.img"
+          -device ide-hd,bus=ide.2,drive=slab,serial=SLABDISK
+          -device qemu-xhci,id=xhci
+          -drive if=none,id=stick,format=raw,file="$W/stick.img"
+          -device usb-storage,bus=xhci.0,drive=stick,serial=IMGSTICK)
+SPORT=$(( 40000 + RANDOM % 20000 ))
+python3 -m http.server -b 127.0.0.1 -d "$W/srv" "$SPORT" >"$W/http.log" 2>&1 &
+HPID=$!
 
 FW=()
 case "$MODE" in
@@ -157,4 +193,36 @@ PY
 done
 out=$(api -X POST "http://127.0.0.1:$PORT/disks/wipe/nosuchdisk")
 grep -q '"status":"error"' <<<"$out" || fail "wipe: a missing disk did not fail: $out"
+
+# Image write (#36).
+disks=$(api "http://127.0.0.1:$PORT/disks")
+stick=$(json "next((x['name'] for x in d['data'] if x.get('serial')=='IMGSTICK' or x.get('size')=='1G'), '')" <<<"$disks")
+slab=$(json "next((x['name'] for x in d['data'] if x.get('serial')=='SLABDISK' or x.get('size')=='64M'), '')" <<<"$disks")
+[ -n "$stick" ] && [ -n "$slab" ] || fail "image: no USB stick (1G) or slab disk (64M) in /disks: $disks"
+url="http://10.0.2.2:$SPORT/new.img"
+sum=$(sha256sum "$W/srv/new.img" | cut -d' ' -f1)
+out=$(api -X POST -d "url=$url" -d "sha256=$sum" "http://127.0.0.1:$PORT/disks/image/$slab")
+grep -q '"status":"error"' <<<"$out" && grep -q STRMSLAB <<<"$out" || fail "image: the slab disk $slab was not refused: $out"
+say "image: slab disk $slab refused: $(json "d['error']" <<<"$out")"
+out=$(api -X POST -d "url=$url" -d "sha256=$(printf '0%.0s' {1..64})" "http://127.0.0.1:$PORT/disks/image/$stick")
+grep -q '"status":"error"' <<<"$out" && grep -q 'sha256' <<<"$out" || fail "image: a wrong sha256 was not refused: $out"
+cmp -s -n 1048576 "$W/old.img" "$W/stick.img" || fail "image: a refused image changed the stick"
+say "image: wrong sha256 refused, stick untouched: $(json "d['error']" <<<"$out")"
+out=$(api -X POST -d "url=$url" -d "sha256=$sum" -d keep_local_conf=true "http://127.0.0.1:$PORT/disks/image/$stick")
+v=$(json "d['status']+' '+str(d['data']['verified'])+' '+d['data']['gpt']+' | '+', '.join(d['data'].get('local_conf_kept') or [])" <<<"$out") \
+    || fail "image: $stick: $out"
+case "$v" in
+    "ok True 512-byte blocks | local.conf (18 bytes), name = forge1, tag = forge") ;;
+    *) fail "image: $stick: $v: $out" ;;
+esac
+say "image: $stick written: $v; steps $(json "','.join(s['step'].replace(' ','_') for s in d['data']['steps'])" <<<"$out")"
+# On the host: the new image's ESP, the old local.conf plus the identity the
+# new stormboot.conf drops, the backup GPT at the end of the 1 GiB disk.
+E="$W/stick.img@@1048576"
+mtype -i "$E" ::/EFI/BOOT/BOOTX64.EFI | cmp -s - "$W/new/BOOTX64.EFI" || fail "image: BOOTX64.EFI on the stick is not the new one"
+mtype -i "$E" ::/stormboot/stormboot.conf | cmp -s - "$W/new/stormboot.conf" || fail "image: stormboot.conf is not the new one"
+lc=$(mtype -i "$E" ::/stormboot/local.conf)
+[ "$lc" = "$(printf 'portal = 10.0.0.1\nname = forge1\ntag = forge')" ] || fail "image: local.conf on the stick: $lc"
+[ "$(tail -c 512 "$W/stick.img" | head -c 8)" = "EFI PART" ] || fail "image: no backup GPT at the end of the stick"
+say "image: on the host the stick has the new image, local.conf kept ($(tr '\n' ';' <<<"$lc")), backup GPT at its end"
 say "PASS"
