@@ -88,7 +88,7 @@ reach the blade can wipe its disks or reflash its firmware. `GET /` lists every 
 | GET | `/firmware` | List bundled Mellanox firmware files (`/usr/share/firmware/mellanox/*.bin`) |
 | POST | `/firmware/update` | Update Mellanox NIC firmware. Parameters: `device=<pci_addr>`, optional `url=<firmware_url>` |
 | GET | `/bios` | BIOS version and update availability (known boards: X9SRD-F → 3.2b, file in `/usr/share/firmware/bios/`) |
-| POST | `/bios/update` | Update BIOS via flashrom (checks board compatibility, requires `force=true`). Goldens carry no BIOS file today (#13), so there is nothing to apply |
+| POST | `/bios/update` | Update BIOS via flashrom (checks board compatibility, requires `force=true`). Goldens carry no BIOS file today (#28), so there is nothing to apply |
 | POST | `/bios/configure` | JSON `{"quick_boot", "quiet_boot", "disable_pxe_nics"}`: quick/quiet boot through `sum`, PXE removed from the EFI boot entries of the named NICs through `efibootmgr` |
 | GET | `/bios/config` | The whole BIOS configuration file (`sum -c GetCurrentBiosCfg`), returned as-is (text, or XML on newer boards) |
 | POST | `/bios/config` | Apply a file from `GET /bios/config` as the request body (`sum -c ChangeBiosCfg`); takes effect on the next reboot |
@@ -282,7 +282,7 @@ The image includes:
   from a pinned content.mellanox.com URL checked against its sha256: the build
   fails if it is missing or changed (#13)
 - No BIOS file: `/usr/share/firmware/bios/` is empty in goldens. supermicro.com
-  refuses scripted downloads, so where the X9SRD-F 3.2b file comes from is open (#13)
+  refuses scripted downloads, so where the X9SRD-F 3.2b file comes from is open (#28)
 
 ### Network Drivers Loaded at Boot
 

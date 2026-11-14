@@ -57,7 +57,7 @@ For forge1's stormbootx USB stick (owner: "dont serve it, upgrade the image on u
        The endpoint and the USB init fix stay on main (images requested at
        5f9c650); never run on a real node. Remove the endpoint if the owner asks.
 
-### Open issues not yet worked (docs refresh 2026-11-07; no code changed since 2026-10-15)
+### Open issues not yet worked (docs refresh 2026-11-14; code changed since 2026-11-07 only by #36)
 - #32 (P1): `handleIPMIReset` (main.go) writes ADMIN/ADMIN itself; keep the configured login instead.
 - #33 (P2): `pxeimage/build.sh` pulls Alpine v3.20 (EOL 2026-04-01); move to 3.22/3.23.
 - #30 (P2): `/disks` full SMART set as numbers (`smartctl -x -j`).

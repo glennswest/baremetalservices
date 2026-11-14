@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### 2026-11-14
+- **docs:** Refreshed README and CLAUDE.md against the code since 2026-11-07 (only #36 changed it: `POST /disks/image/{dev}`, USB init drivers, both documented). The open BIOS-file question now points at #28, not closed #13 (#34); open issues #27-#35 re-listed.
+
 ### 2026-11-13
 - **docs:** #36 withdrawn (stick upgrade is an ESP file update, owner); `POST /disks/image/{dev}` stays, unused on hardware
 - **feat:** `POST /disks/image/{dev}?url=…&sha256=…[&keep_local_conf=true]` writes a raw boot image (a stormbootx `-usb.img`) onto a whole disk: refuses mounted/swap/held/stormblock-slab disks, checks the sha256 and the GPT block size, zeroes the old tail, writes and fsyncs, verifies a read-back sha256 past the page cache, moves the backup GPT to the end (`sgdisk -e`, `-v`), re-reads the partition table, and can carry the old stick's `stormboot/local.conf` and name/tag (`imagewrite.go`, #36).
