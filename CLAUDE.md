@@ -36,6 +36,20 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        /health, /system, /boot/order answer on server3, then `--off`.
 6. [x] README.
 
+### Issue #39 — review: 4 major findings in main.go (P1, 2026-11-20)
+1. [ ] 516e4f885acb: secure-erase fallback (no ATA security) zeroes the whole
+       device in Go (no dd), reads back head/tail/samples past the cache, and
+       answers 500 unless the write and the read-back both succeed.
+2. [ ] 8fe507b0417b: disable_pxe_nics resolves filters to physical NICs, maps
+       EFI PXE entries to NICs by MAC only (no description matching), and
+       refuses when no PXE entry of a kept NIC would remain.
+3. [ ] be3bdc3dcdf0: NVMe smart_health from critical_warning (0 PASSED,
+       else FAILED, unreadable -> unknown).
+4. [ ] c2bfa5d76292: mstflintCache behind a mutex, published once filled.
+5. [ ] Unit tests per finding; boot test: NVMe health PASSED then FAILED
+       (QMP qom-set smart_critical_warning), virtio disk secure-erase
+       fallback verified zero / read-only disk refused. sc-build test/run.sh.
+
 ### Issue #38 — review finding d20f640fc5ce: HTTP parameters in root shell commands (P0, 2026-11-20)
 1. [x] No request value reaches `sh -c`: every `runShell(fmt.Sprintf…)` becomes
        `runCommand`/`runStdout` with an argv (no shell) and Go-side filtering;
