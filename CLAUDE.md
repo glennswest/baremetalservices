@@ -36,6 +36,17 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        /health, /system, /boot/order answer on server3, then `--off`.
 6. [x] README.
 
+### Issue #38 — review finding d20f640fc5ce: HTTP parameters in root shell commands (P0, 2026-11-20)
+1. [ ] No request value reaches `sh -c`: every `runShell(fmt.Sprintf…)` becomes
+       `runCommand`/`runStdout` with an argv (no shell) and Go-side filtering;
+       sysfs reads via os.ReadFile/Readlink.
+2. [ ] Validate before anything runs: block device names (charset + exists
+       under /sys/class/block) on detail/partition/format/secure-erase;
+       PCI address + http(s) URL on /firmware/update; label gpt|msdos.
+3. [ ] Tests: AST test that `runShell` only ever takes a string literal;
+       handler tests that injection payloads get 400 before any exec.
+4. [ ] CHANGELOG, README; sc-build (go test + test/run.sh); close #38.
+
 ### Issue #36 — POST /disks/image/{dev}: write a boot image to a disk (P0, 2026-11-13)
 For forge1's stormbootx USB stick (owner: "dont serve it, upgrade the image on usb").
 1. [x] imagewrite.go: `url=`, `sha256=` (required), `keep_local_conf=true`.
