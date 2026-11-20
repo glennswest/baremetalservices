@@ -1487,7 +1487,7 @@ func getDiskDetail(name string) DiskInfo {
 
 	// Temperature from SMART attributes
 	if disk.Temperature == "" {
-		if attrs, err := runStdout("smartctl", "-A", "/dev/"+name); err == nil {
+		if attrs, _ := runStdout("smartctl", "-A", "/dev/"+name); attrs != "" { // smartctl exits non-zero on any status bit
 			fields := strings.Fields(strings.TrimSpace(firstLineContaining(attrs, "temperature", true)))
 			if len(fields) >= 10 {
 				disk.Temperature = fields[9] + " C"
@@ -1497,7 +1497,7 @@ func getDiskDetail(name string) DiskInfo {
 
 	// Power-on hours from SMART attributes
 	if disk.PowerOnHours == "" {
-		if attrs, err := runStdout("smartctl", "-A", "/dev/"+name); err == nil {
+		if attrs, _ := runStdout("smartctl", "-A", "/dev/"+name); attrs != "" { // smartctl exits non-zero on any status bit
 			fields := strings.Fields(strings.TrimSpace(firstLineContaining(attrs, "Power_On_Hours", false)))
 			if len(fields) >= 10 {
 				disk.PowerOnHours = fields[9]
