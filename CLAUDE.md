@@ -37,15 +37,17 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 6. [x] README.
 
 ### Issue #38 — review finding d20f640fc5ce: HTTP parameters in root shell commands (P0, 2026-11-20)
-1. [ ] No request value reaches `sh -c`: every `runShell(fmt.Sprintf…)` becomes
+1. [x] No request value reaches `sh -c`: every `runShell(fmt.Sprintf…)` becomes
        `runCommand`/`runStdout` with an argv (no shell) and Go-side filtering;
        sysfs reads via os.ReadFile/Readlink.
-2. [ ] Validate before anything runs: block device names (charset + exists
+2. [x] Validate before anything runs: block device names (charset + exists
        under /sys/class/block) on detail/partition/format/secure-erase;
        PCI address + http(s) URL on /firmware/update; label gpt|msdos.
-3. [ ] Tests: AST test that `runShell` only ever takes a string literal;
+3. [x] Tests: AST test that `runShell` only ever takes a string literal;
        handler tests that injection payloads get 400 before any exec.
-4. [ ] CHANGELOG, README; sc-build (go test + test/run.sh); close #38.
+4. [x] CHANGELOG, README; sc-build test/run.sh all PASS at e12f0fc and
+       0c1df13 (smartctl -A exit status fix); image requested; #38 closed.
+       Findings' majors for this project follow as P1 (stormcentral findings list).
 
 ### Issue #36 — POST /disks/image/{dev}: write a boot image to a disk (P0, 2026-11-13)
 For forge1's stormbootx USB stick (owner: "dont serve it, upgrade the image on usb").
