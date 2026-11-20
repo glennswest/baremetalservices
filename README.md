@@ -72,14 +72,14 @@ reach the blade can wipe its disks or reflash its firmware. `GET /` lists every 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/disks` | List all disks with details (serial, firmware, SMART health, media type, temperature, power-on hours). The full SMART set as numbers (`smartctl -x -j`) is not exposed yet (#30) |
+| GET | `/disks` | List all disks with details (serial, firmware, SMART health, media type, temperature, power-on hours). NVMe `smart_health` is `PASSED` when the SMART log's `critical_warning` is 0, `FAILED` when any warning bit is set, and absent when it cannot be read (#39). The full SMART set as numbers (`smartctl -x -j`) is not exposed yet (#30) |
 | GET | `/disks/detail/{dev}` | Detailed info for a specific disk (e.g., `/disks/detail/sda`) |
 | POST | `/disks/partition/{dev}` | Create partition table. Parameters: `label=gpt\|msdos` (default: gpt) |
 | POST | `/disks/format/{dev}` | Format a partition. Parameters: `fstype=ext4\|xfs\|vfat` (default: ext4) |
 | POST | `/disks/wipe` | Wipe and verify ALL disks (see below) |
 | POST | `/disks/wipe/{dev}` | Wipe and verify one whole disk (see below) |
 | POST | `/disks/image/{dev}` | Write a raw boot image to a whole disk (a boot stick) and verify it (see below) |
-| POST | `/disks/secure-erase/{dev}` | ATA Secure Erase (hdparm) for SATA, nvme format for NVMe |
+| POST | `/disks/secure-erase/{dev}` | ATA Secure Erase (hdparm) for SATA, nvme format for NVMe. A disk with no ATA security feature is zeroed end to end (blkdiscard first where it works) and read back past the cache at 16 points, head and tail included; any failed write or non-zero read is HTTP 500 (#39) |
 
 `{dev}` on the disk routes must be a plain kernel name (`sda`, `sda1`, `nvme0n1p2`: letters, digits, `_ . : -`, starting with a letter or digit) or the call is 400; a name not under `/sys/class/block` is 404. No request value is ever run through a shell: every command takes its values as separate arguments (#38).
 
@@ -91,7 +91,7 @@ reach the blade can wipe its disks or reflash its firmware. `GET /` lists every 
 | POST | `/firmware/update` | Update Mellanox NIC firmware. Parameters: `device=<pci_addr>` (`05:00.0` or `0000:05:00.0`, anything else is 400), optional `url=<firmware_url>` (http(s) only, else 400) |
 | GET | `/bios` | BIOS version and update availability (known boards: X9SRD-F → 3.2b, file in `/usr/share/firmware/bios/`) |
 | POST | `/bios/update` | Update BIOS via flashrom (checks board compatibility, requires `force=true`). Goldens carry no BIOS file today (#28), so there is nothing to apply |
-| POST | `/bios/configure` | JSON `{"quick_boot", "quiet_boot", "disable_pxe_nics"}`: quick/quiet boot through `sum`, PXE removed from the EFI boot entries of the named NICs through `efibootmgr` |
+| POST | `/bios/configure` | JSON `{"quick_boot", "quiet_boot", "disable_pxe_nics"}`: quick/quiet boot through `sum`, PXE removed from the EFI boot entries of the named NICs through `efibootmgr`. A filter names NIC drivers or vendors (`mellanox`, `mlx4`, `intel`), never boot-entry text; an entry is removed only when it carries the MAC of a matching NIC, and nothing is removed if no network entry of another NIC would remain (#39) |
 | GET | `/bios/config` | The whole BIOS configuration file (`sum -c GetCurrentBiosCfg`), returned as-is (text, or XML on newer boards) |
 | POST | `/bios/config` | Apply a file from `GET /bios/config` as the request body (`sum -c ChangeBiosCfg`); takes effect on the next reboot |
 

@@ -78,6 +78,20 @@ SCRATCH+=(-drive if=none,id=slab,format=raw,file="$W/slab.img"
           -device qemu-xhci,id=xhci
           -drive if=none,id=stick,format=raw,file="$W/stick.img"
           -device usb-storage,bus=xhci.0,drive=stick,serial=IMGSTICK)
+# Review findings (#39): an NVMe disk whose SMART critical_warning is raised
+# over QMP mid-test; a 96 MiB virtio disk of random data for the secure-erase
+# fallback (no ATA security), and an 80 MiB read-only one it must fail on.
+truncate -s 48M "$W/nvme.img"
+head -c $((96 << 20)) /dev/urandom >"$W/erase.img"
+head -c $((80 << 20)) /dev/urandom >"$W/erasero.img"
+cp "$W/erasero.img" "$W/erasero.orig"
+SCRATCH+=(-drive if=none,id=nvd,format=raw,file="$W/nvme.img"
+          -device nvme,id=nv0,serial=NVMEWARN,drive=nvd
+          -drive if=none,id=er,format=raw,file="$W/erase.img"
+          -device virtio-blk-pci,drive=er,serial=ERASEVD
+          -drive if=none,id=ero,format=raw,readonly=on,file="$W/erasero.img"
+          -device virtio-blk-pci,drive=ero,serial=ERASERO
+          -qmp unix:"$W/qmp.sock",server=on,wait=off)
 SPORT=$(( 40000 + RANDOM % 20000 ))
 python3 -m http.server -b 127.0.0.1 -d "$W/srv" "$SPORT" >"$W/http.log" 2>&1 &
 HPID=$!
@@ -193,6 +207,46 @@ PY
 done
 out=$(api -X POST "http://127.0.0.1:$PORT/disks/wipe/nosuchdisk")
 grep -q '"status":"error"' <<<"$out" || fail "wipe: a missing disk did not fail: $out"
+
+# NVMe health (#39, be3bdc3dcdf0): PASSED with no warning, FAILED once
+# critical_warning has the reliability bit (QEMU's smart_critical_warning).
+disks=$(api "http://127.0.0.1:$PORT/disks")
+nv=$(json "next((x['name'] for x in d['data'] if x['name'].startswith('nvme')), '')" <<<"$disks")
+[ -n "$nv" ] || fail "nvme: no NVMe disk in /disks: $disks"
+h=$(api "http://127.0.0.1:$PORT/disks/detail/$nv" | json "d['data'].get('smart_health','')")
+[ "$h" = PASSED ] || fail "nvme: $nv with no critical warning: smart_health '$h'"
+python3 - "$W/qmp.sock" <<'PY' || fail "nvme: qom-set smart_critical_warning over QMP"
+import json, socket, sys
+s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); f = s.makefile('rw')
+f.readline()
+for cmd in ({"execute": "qmp_capabilities"},
+            {"execute": "qom-set", "arguments": {"path": "/machine/peripheral/nv0",
+             "property": "smart_critical_warning", "value": 4}}):
+    f.write(json.dumps(cmd) + "\n"); f.flush()
+    while True:
+        r = json.loads(f.readline())
+        if 'error' in r: sys.exit(r['error'].get('desc'))
+        if 'return' in r: break
+PY
+h=$(api "http://127.0.0.1:$PORT/disks/detail/$nv" | json "d['data'].get('smart_health','')")
+[ "$h" = FAILED ] || fail "nvme: $nv with critical_warning 0x4: smart_health '$h'"
+say "nvme ($nv): smart_health PASSED, then FAILED with critical_warning 0x4"
+
+# Secure-erase fallback (#39, 516e4f885acb): no ATA security on virtio, so
+# the disk is zeroed and read back; a read-only disk is a failure, not "wiped".
+er=$(json "next((x['name'] for x in d['data'] if x.get('size')=='96M'), '')" <<<"$disks")
+ero=$(json "next((x['name'] for x in d['data'] if x.get('size')=='80M'), '')" <<<"$disks")
+[ -n "$er" ] && [ -n "$ero" ] || fail "erase: no 96M / 80M virtio disk in /disks: $disks"
+out=$(api -X POST "http://127.0.0.1:$PORT/disks/secure-erase/$er")
+v=$(json "d['status']+' '+d['data'].get('zero','')+' | '+d['data'].get('verified','')" <<<"$out") || fail "erase: $er: $out"
+case "$v" in "ok success | zero at 16 points"*) ;; *) fail "erase: $er: $v: $out" ;; esac
+python3 -c "import sys; d=open(sys.argv[1],'rb').read(); sys.exit(d.count(0)!=len(d))" "$W/erase.img" \
+    || fail "erase: erase.img on the host is not all zero"
+say "erase: $er zeroed and verified ($v); host image all zero"
+out=$(api -X POST "http://127.0.0.1:$PORT/disks/secure-erase/$ero")
+grep -q '"status":"error"' <<<"$out" || fail "erase: read-only $ero was reported erased: $out"
+cmp -s "$W/erasero.img" "$W/erasero.orig" || fail "erase: the read-only disk changed"
+say "erase: read-only $ero refused: $(json "d['error']" <<<"$out")"
 
 # Image write (#36).
 disks=$(api "http://127.0.0.1:$PORT/disks")

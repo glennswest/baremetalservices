@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -132,35 +134,40 @@ func runShell(command string) (string, error) {
 	return string(output), err
 }
 
-var mstflintCache map[string]map[string]string
-var mstflintCached bool
+// mstflintCache holds each Mellanox card's `mstflint q` output, by PCI
+// address. HTTP handlers run concurrently (/network, the web UI), so it is
+// read and written only under mstflintMu, and an entry is published only once
+// it is filled (finding c2bfa5d76292).
+var (
+	mstflintMu    sync.Mutex
+	mstflintCache = map[string]map[string]string{}
+)
 
 func getMellanoxFirmwareInfo(pciAddr string) map[string]string {
-	if mstflintCache == nil {
-		mstflintCache = make(map[string]map[string]string)
-	}
-
-	if info, ok := mstflintCache[pciAddr]; ok {
+	mstflintMu.Lock()
+	info, ok := mstflintCache[pciAddr]
+	mstflintMu.Unlock()
+	if ok {
 		return info
 	}
 
-	info := make(map[string]string)
-	mstflintCache[pciAddr] = info
-
-	out, err := runStdout("mstflint", "-d", pciAddr, "q")
-	if err != nil {
-		return info
-	}
-
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.Contains(line, ":") {
-			parts := strings.SplitN(line, ":", 2)
-			key := strings.TrimSpace(parts[0])
-			val := strings.TrimSpace(parts[1])
-			info[key] = val
+	info = make(map[string]string)
+	if out, err := runStdout("mstflint", "-d", pciAddr, "q"); err == nil {
+		for _, line := range strings.Split(out, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.Contains(line, ":") {
+				parts := strings.SplitN(line, ":", 2)
+				info[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+			}
 		}
 	}
+
+	mstflintMu.Lock()
+	defer mstflintMu.Unlock()
+	if cached, ok := mstflintCache[pciAddr]; ok {
+		return cached // another request filled it first
+	}
+	mstflintCache[pciAddr] = info
 	return info
 }
 
@@ -1232,110 +1239,21 @@ func handleBIOSConfigure(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Handle disable_pxe_nics via efibootmgr
+	// Handle disable_pxe_nics via efibootmgr (planPXEDisable, finding 8fe507b0417b)
 	if len(req.DisablePXENICs) > 0 {
-		interfaces := getNetworkInterfaces()
-
-		// Collect physical NICs (exclude loopback and virtual)
-		var physicalNICs []NetworkInterface
-		for _, iface := range interfaces {
-			if iface.Driver != "" && iface.Name != "lo" {
-				physicalNICs = append(physicalNICs, iface)
-			}
-		}
-
-		// Count how many NICs match the disable filters
-		matchCount := 0
-		for _, nic := range physicalNICs {
-			if nicMatchesFilter(nic.Driver, req.DisablePXENICs) {
-				matchCount++
-			}
-		}
-
-		if len(physicalNICs) > 0 && matchCount >= len(physicalNICs) {
-			// All NICs match — skip to preserve PXE capability
-			vendors := make(map[string]bool)
-			for _, nic := range physicalNICs {
-				vendors[driverToVendor(strings.ToLower(nic.Driver))] = true
-			}
-			vendorList := make([]string, 0, len(vendors))
-			for v := range vendors {
-				vendorList = append(vendorList, v)
-			}
-			skipped = append(skipped, fmt.Sprintf(
-				"PXE disable: all NICs are %s, skipping to preserve PXE capability",
-				strings.Join(vendorList, "/"),
-			))
+		runShell("mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null")
+		efiOut, err := runStdout("efibootmgr", "-v")
+		if err != nil {
+			skipped = append(skipped, "PXE disable: efibootmgr not available or system not EFI-booted")
 		} else {
-			// Safe to disable PXE on matching NICs
-			runShell("mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null")
-
-			efiOut, err := runShell("efibootmgr -v 2>/dev/null")
-			if err != nil {
-				skipped = append(skipped, "PXE disable: efibootmgr not available or system not EFI-booted")
-			} else {
-				// Build NIC MAC→driver map for cross-referencing
-				nicDrivers := make(map[string]string)
-				for _, iface := range interfaces {
-					if iface.MAC != "" && iface.Driver != "" {
-						nicDrivers[strings.ToLower(iface.MAC)] = strings.ToLower(iface.Driver)
-					}
-				}
-
-				for _, line := range strings.Split(efiOut, "\n") {
-					line = strings.TrimSpace(line)
-					if !strings.HasPrefix(line, "Boot") {
-						continue
-					}
-					lineLower := strings.ToLower(line)
-					if !strings.Contains(lineLower, "pxe") && !strings.Contains(lineLower, "network") {
-						continue
-					}
-					if len(line) < 8 {
-						continue
-					}
-					bootNum := line[4:8]
-					if !bootNumRe.MatchString(bootNum) {
-						continue
-					}
-
-					matched := false
-					for _, filter := range req.DisablePXENICs {
-						filterLower := strings.ToLower(filter)
-						// Match against EFI boot entry description
-						if strings.Contains(lineLower, filterLower) {
-							matched = true
-							break
-						}
-						// Match against NIC driver/vendor by MAC address
-						for mac, driver := range nicDrivers {
-							colons := mac
-							dashes := strings.ReplaceAll(mac, ":", "-")
-							if strings.Contains(lineLower, colons) || strings.Contains(lineLower, dashes) {
-								if strings.Contains(driver, filterLower) || strings.Contains(driverToVendor(driver), filterLower) {
-									matched = true
-									break
-								}
-							}
-						}
-						if matched {
-							break
-						}
-					}
-
-					if matched {
-						if _, err := runCommand("efibootmgr", "-b", bootNum, "-B"); err == nil {
-							desc := line
-							if idx := strings.Index(line, " "); idx > 0 {
-								desc = strings.TrimSpace(line[idx:])
-								desc = strings.TrimLeft(desc, "* ")
-							}
-							changes = append(changes, fmt.Sprintf("PXE disabled on: %s", desc))
-							rebootRequired = true
-						} else {
-							changes = append(changes, fmt.Sprintf("PXE disable failed for Boot%s", bootNum))
-						}
-					}
+			del, why := planPXEDisable(efiOut, getNetworkInterfaces(), req.DisablePXENICs)
+			skipped = append(skipped, why...)
+			for _, e := range del {
+				if _, err := runCommand("efibootmgr", "-b", e.Num, "-B"); err == nil {
+					changes = append(changes, fmt.Sprintf("PXE disabled on %s: %s", e.NIC, e.Desc))
+					rebootRequired = true
+				} else {
+					changes = append(changes, fmt.Sprintf("PXE disable failed for Boot%s", e.Num))
 				}
 			}
 		}
@@ -1446,24 +1364,17 @@ func getDiskDetail(name string) DiskInfo {
 				}
 			}
 		}
-		// NVMe SMART health
+		// NVMe SMART health (finding be3bdc3dcdf0): from critical_warning,
+		// unknown when the log cannot be read.
 		if nvmeSmart, err := runStdout("nvme", "smart-log", "/dev/"+name); err == nil {
-			for _, line := range strings.Split(nvmeSmart, "\n") {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "temperature") {
-					parts := strings.SplitN(line, ":", 2)
-					if len(parts) == 2 {
-						disk.Temperature = strings.TrimSpace(parts[1])
-					}
-				}
-				if strings.HasPrefix(line, "power_on_hours") {
-					parts := strings.SplitN(line, ":", 2)
-					if len(parts) == 2 {
-						disk.PowerOnHours = strings.TrimSpace(parts[1])
-					}
-				}
+			temp, poh, health := parseNVMeSmartLog(nvmeSmart)
+			if temp != "" {
+				disk.Temperature = temp
 			}
-			disk.SmartHealth = "PASSED"
+			if poh != "" {
+				disk.PowerOnHours = poh
+			}
+			disk.SmartHealth = health
 		}
 	}
 
@@ -1692,19 +1603,28 @@ func handleDiskSecureErase(w http.ResponseWriter, r *http.Request) {
 	if !strings.Contains(hdparmOut, "supported: enhanced erase") && !strings.Contains(hdparmOut, "supported") {
 		// Check basic support
 		if !strings.Contains(hdparmOut, "Security") {
-			results["method"] = "blkdiscard+dd (no ATA secure erase support)"
-			// Fallback: blkdiscard then dd
+			// No ATA security: discard (best effort), then zero the whole
+			// device and read it back (zeroAndVerify, finding 516e4f885acb).
+			results["method"] = "blkdiscard+zero (no ATA secure erase support)"
 			if out, err := runCommand("blkdiscard", devPath); err == nil {
 				results["blkdiscard"] = "success"
 			} else {
 				results["blkdiscard"] = strings.TrimSpace(out)
 			}
-			if out, err := runCommand("dd", "if=/dev/zero", "of="+devPath, "bs=1M", "status=progress"); err == nil {
-				results["dd_zero"] = "success"
-			} else {
-				results["dd_zero"] = strings.TrimSpace(out)
+			size, err := blockDeviceSize(dev)
+			if err == nil {
+				results["size_bytes"] = strconv.FormatInt(size, 10)
+				err = zeroAndVerify(devPath, size)
 			}
-			sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Message: "Disk wiped (ATA secure erase not supported)", Data: results})
+			if err != nil {
+				results["zero"] = err.Error()
+				sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Secure erase failed: " + err.Error(), Data: results})
+				return
+			}
+			results["zero"] = "success"
+			results["verified"] = fmt.Sprintf("zero at %d points (head, tail, between)", len(eraseSampleOffsets(size)))
+			results["status"] = "success"
+			sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Message: "Disk zeroed and verified (ATA secure erase not supported)", Data: results})
 			return
 		}
 	}
