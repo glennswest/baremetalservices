@@ -81,12 +81,14 @@ reach the blade can wipe its disks or reflash its firmware. `GET /` lists every 
 | POST | `/disks/image/{dev}` | Write a raw boot image to a whole disk (a boot stick) and verify it (see below) |
 | POST | `/disks/secure-erase/{dev}` | ATA Secure Erase (hdparm) for SATA, nvme format for NVMe |
 
+`{dev}` on the disk routes must be a plain kernel name (`sda`, `sda1`, `nvme0n1p2`: letters, digits, `_ . : -`, starting with a letter or digit) or the call is 400; a name not under `/sys/class/block` is 404. No request value is ever run through a shell: every command takes its values as separate arguments (#38).
+
 ### Firmware & BIOS
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/firmware` | List bundled Mellanox firmware files (`/usr/share/firmware/mellanox/*.bin`) |
-| POST | `/firmware/update` | Update Mellanox NIC firmware. Parameters: `device=<pci_addr>`, optional `url=<firmware_url>` |
+| POST | `/firmware/update` | Update Mellanox NIC firmware. Parameters: `device=<pci_addr>` (`05:00.0` or `0000:05:00.0`, anything else is 400), optional `url=<firmware_url>` (http(s) only, else 400) |
 | GET | `/bios` | BIOS version and update availability (known boards: X9SRD-F → 3.2b, file in `/usr/share/firmware/bios/`) |
 | POST | `/bios/update` | Update BIOS via flashrom (checks board compatibility, requires `force=true`). Goldens carry no BIOS file today (#28), so there is nothing to apply |
 | POST | `/bios/configure` | JSON `{"quick_boot", "quiet_boot", "disable_pxe_nics"}`: quick/quiet boot through `sum`, PXE removed from the EFI boot entries of the named NICs through `efibootmgr` |

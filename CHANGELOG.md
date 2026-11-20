@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### 2026-11-20
+- **fix(security):** HTTP parameters were formatted into root `sh -c` commands (review finding d20f640fc5ce, #38): `device=`/`url=` of `/firmware/update` and `{dev}`/`label=` of the disk routes could run any command as root. Every command that carries a value now runs as an argv with no shell (`runCommand`/`runStdout`; sysfs read directly), `runShell` is left only for fixed strings, and request values are checked first: disk names (plain kernel name, present under `/sys/class/block`, else 400/404), PCI address, http(s) URL, `label=gpt|msdos`. EFI boot numbers parsed from `efibootmgr` are checked before `efibootmgr -b`.
+- **test:** `TestRunShellOnlyTakesLiterals` (AST scan: a non-literal `runShell` argument fails the build), shell-payload tests on every disk route and `/firmware/update` (400 before anything runs), and a check that a payload passed to `runCommand` arrives verbatim and runs nothing (#38).
+
 ### 2026-11-14
 - **docs:** Refreshed README and CLAUDE.md against the code since 2026-11-07 (only #36 changed it: `POST /disks/image/{dev}`, USB init drivers, both documented). The open BIOS-file question now points at #28, not closed #13 (#34); open issues #27-#35 re-listed.
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -146,7 +147,7 @@ func getMellanoxFirmwareInfo(pciAddr string) map[string]string {
 	info := make(map[string]string)
 	mstflintCache[pciAddr] = info
 
-	out, err := runShell(fmt.Sprintf("mstflint -d %s q 2>/dev/null", pciAddr))
+	out, err := runStdout("mstflint", "-d", pciAddr, "q")
 	if err != nil {
 		return info
 	}
@@ -165,7 +166,7 @@ func getMellanoxFirmwareInfo(pciAddr string) map[string]string {
 
 func readDMI(field string) string {
 	path := "/sys/class/dmi/id/" + field
-	if out, err := runShell(fmt.Sprintf("cat %s 2>/dev/null", path)); err == nil {
+	if out, err := readFile(path); err == nil {
 		val := strings.TrimSpace(out)
 		if val != "" && val != "To Be Filled By O.E.M." && val != "Default string" && val != "Not Specified" {
 			return val
@@ -204,7 +205,7 @@ func getAssetInfo() AssetInfo {
 
 func getNICFirmware(iface string, driver string) (firmware string, model string) {
 	// Get PCI device path
-	pciPath, err := runShell(fmt.Sprintf("basename $(readlink /sys/class/net/%s/device 2>/dev/null) 2>/dev/null", iface))
+	pciPath, err := linkBase("/sys/class/net/" + iface + "/device")
 	if err != nil {
 		return "", ""
 	}
@@ -220,7 +221,7 @@ func getNICFirmware(iface string, driver string) (firmware string, model string)
 		}
 		// Try VPD for model info if mstflint didn't provide it
 		if model == "" || model == "PSID" {
-			if vpd, err := runShell(fmt.Sprintf("strings /sys/class/net/%s/device/vpd 2>/dev/null", iface)); err == nil {
+			if vpd, err := runStdout("strings", "/sys/class/net/"+iface+"/device/vpd"); err == nil {
 				lines := strings.Split(vpd, "\n")
 				for i, line := range lines {
 					line = strings.TrimSpace(line)
@@ -236,8 +237,8 @@ func getNICFirmware(iface string, driver string) (firmware string, model string)
 		}
 	} else if driver == "ixgbe" || driver == "i40e" || driver == "ice" {
 		// Intel NICs - get model from device/subsystem info
-		if vendor, err := runShell(fmt.Sprintf("cat /sys/class/net/%s/device/subsystem_vendor 2>/dev/null", iface)); err == nil {
-			if device, err := runShell(fmt.Sprintf("cat /sys/class/net/%s/device/subsystem_device 2>/dev/null", iface)); err == nil {
+		if vendor, err := readFile("/sys/class/net/" + iface + "/device/subsystem_vendor"); err == nil {
+			if device, err := readFile("/sys/class/net/" + iface + "/device/subsystem_device"); err == nil {
 				model = fmt.Sprintf("Intel %s (subsys %s:%s)", driver,
 					strings.TrimSpace(strings.TrimPrefix(vendor, "0x")),
 					strings.TrimSpace(strings.TrimPrefix(device, "0x")))
@@ -322,17 +323,17 @@ func getNetworkInterfaces() []NetworkInterface {
 		ni := NetworkInterface{Name: iface}
 
 		// MAC address
-		if mac, err := runShell(fmt.Sprintf("cat /sys/class/net/%s/address", iface)); err == nil {
+		if mac, err := readFile("/sys/class/net/" + iface + "/address"); err == nil {
 			ni.MAC = strings.TrimSpace(mac)
 		}
 
 		// State
-		if state, err := runShell(fmt.Sprintf("cat /sys/class/net/%s/operstate", iface)); err == nil {
+		if state, err := readFile("/sys/class/net/" + iface + "/operstate"); err == nil {
 			ni.State = strings.TrimSpace(state)
 		}
 
 		// Speed
-		if speed, err := runShell(fmt.Sprintf("cat /sys/class/net/%s/speed 2>/dev/null", iface)); err == nil {
+		if speed, err := readFile("/sys/class/net/" + iface + "/speed"); err == nil {
 			s := strings.TrimSpace(speed)
 			if s != "" && s != "-1" {
 				ni.Speed = s + " Mbps"
@@ -340,7 +341,7 @@ func getNetworkInterfaces() []NetworkInterface {
 		}
 
 		// Driver
-		if driver, err := runShell(fmt.Sprintf("basename $(readlink /sys/class/net/%s/device/driver 2>/dev/null) 2>/dev/null", iface)); err == nil {
+		if driver, err := linkBase("/sys/class/net/" + iface + "/device/driver"); err == nil {
 			ni.Driver = strings.TrimSpace(driver)
 		}
 
@@ -348,13 +349,13 @@ func getNetworkInterfaces() []NetworkInterface {
 		ni.Firmware, ni.Model = getNICFirmware(iface, ni.Driver)
 
 		// IPv4
-		if ipv4, err := runShell(fmt.Sprintf("ip -4 addr show %s 2>/dev/null | grep 'inet ' | awk '{print $2}'", iface)); err == nil {
-			ni.IPv4 = strings.TrimSpace(ipv4)
+		if out, err := runStdout("ip", "-4", "addr", "show", "dev", iface); err == nil {
+			ni.IPv4 = ipAddrs(out, "inet", false)
 		}
 
 		// IPv6
-		if ipv6, err := runShell(fmt.Sprintf("ip -6 addr show %s 2>/dev/null | grep 'inet6 ' | grep -v fe80 | awk '{print $2}'", iface)); err == nil {
-			ni.IPv6 = strings.TrimSpace(ipv6)
+		if out, err := runStdout("ip", "-6", "addr", "show", "dev", iface); err == nil {
+			ni.IPv6 = ipAddrs(out, "inet6", true)
 		}
 
 		interfaces = append(interfaces, ni)
@@ -884,6 +885,16 @@ func handleFirmwareUpdate(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Missing 'device' parameter (PCI address like 05:00.0)"})
 		return
 	}
+	if err := checkPCIAddr(device); err != nil {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: err.Error()})
+		return
+	}
+	if firmwareURL != "" {
+		if err := checkFirmwareURL(firmwareURL); err != nil {
+			sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: err.Error()})
+			return
+		}
+	}
 
 	results := make(map[string]string)
 	var firmwarePath string
@@ -891,8 +902,12 @@ func handleFirmwareUpdate(w http.ResponseWriter, r *http.Request) {
 	// Try bundled firmware first (auto-detect based on device PSID)
 	if firmwareURL == "" {
 		// Get device PSID
-		psidOut, _ := runShell(fmt.Sprintf("mstflint -d %s q 2>/dev/null | grep PSID | awk '{print $2}'", device))
-		psid := strings.TrimSpace(psidOut)
+		psid := ""
+		if q, _ := runStdout("mstflint", "-d", device, "q"); q != "" {
+			if f := strings.Fields(firstLineContaining(q, "PSID", false)); len(f) >= 2 {
+				psid = f[1]
+			}
+		}
 		results["device_psid"] = psid
 
 		// Find matching firmware
@@ -915,7 +930,7 @@ func handleFirmwareUpdate(w http.ResponseWriter, r *http.Request) {
 		// Download firmware from URL
 		firmwarePath = "/tmp/firmware.bin"
 		results["download_url"] = firmwareURL
-		if out, err := runShell(fmt.Sprintf("wget -q -O %s '%s' 2>&1", firmwarePath, firmwareURL)); err != nil {
+		if out, err := runCommand("wget", "-q", "-O", firmwarePath, firmwareURL); err != nil {
 			sendJSON(w, http.StatusInternalServerError, APIResponse{
 				Status: "error",
 				Error:  "Failed to download firmware: " + out,
@@ -926,12 +941,12 @@ func handleFirmwareUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get current firmware version
-	if out, err := runShell(fmt.Sprintf("mstflint -d %s q 2>&1 | grep 'FW Version'", device)); err == nil {
-		results["old_version"] = strings.TrimSpace(out)
+	if out, err := runCommand("mstflint", "-d", device, "q"); err == nil {
+		results["old_version"] = strings.TrimSpace(firstLineContaining(out, "FW Version", false))
 	}
 
 	// Verify firmware file matches device
-	if out, err := runShell(fmt.Sprintf("mstflint -d %s -i %s v 2>&1", device, firmwarePath)); err != nil {
+	if out, err := runCommand("mstflint", "-d", device, "-i", firmwarePath, "v"); err != nil {
 		results["verify"] = out
 		sendJSON(w, http.StatusBadRequest, APIResponse{
 			Status: "error",
@@ -943,7 +958,7 @@ func handleFirmwareUpdate(w http.ResponseWriter, r *http.Request) {
 	results["verify"] = "success"
 
 	// Burn firmware
-	if out, err := runShell(fmt.Sprintf("mstflint -d %s -i %s -y burn 2>&1", device, firmwarePath)); err != nil {
+	if out, err := runCommand("mstflint", "-d", device, "-i", firmwarePath, "-y", "burn"); err != nil {
 		results["burn"] = out
 		sendJSON(w, http.StatusInternalServerError, APIResponse{
 			Status: "error",
@@ -955,8 +970,8 @@ func handleFirmwareUpdate(w http.ResponseWriter, r *http.Request) {
 	results["burn"] = "success"
 
 	// Query new firmware version
-	if out, err := runShell(fmt.Sprintf("mstflint -d %s q 2>&1 | grep 'FW Version'", device)); err == nil {
-		results["new_version"] = strings.TrimSpace(out)
+	if out, err := runCommand("mstflint", "-d", device, "q"); err == nil {
+		results["new_version"] = strings.TrimSpace(firstLineContaining(out, "FW Version", false))
 	}
 
 	results["note"] = "Reboot required for firmware to take effect"
@@ -1010,7 +1025,7 @@ func handleBIOS(w http.ResponseWriter, r *http.Request) {
 		info.LatestVersion = dbEntry.LatestVersion
 		// Check if file exists
 		filePath := "/usr/share/firmware/bios/" + dbEntry.FileName
-		if _, err := runShell(fmt.Sprintf("test -f %s && echo exists", filePath)); err == nil {
+		if st, err := os.Stat(filePath); err == nil && st.Mode().IsRegular() {
 			info.LatestFile = filePath
 		}
 		// Compare versions (simple string compare, works for Supermicro versioning)
@@ -1063,7 +1078,7 @@ func handleBIOSUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// Check if firmware file exists
 	filePath := "/usr/share/firmware/bios/" + dbEntry.FileName
-	if out, err := runShell(fmt.Sprintf("test -f %s && echo exists", filePath)); err != nil || strings.TrimSpace(out) != "exists" {
+	if st, err := os.Stat(filePath); err != nil || !st.Mode().IsRegular() {
 		sendJSON(w, http.StatusInternalServerError, APIResponse{
 			Status: "error",
 			Error:  fmt.Sprintf("BIOS file not found: %s", filePath),
@@ -1110,8 +1125,7 @@ func handleBIOSUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Actually perform the update
-	updateCmd := fmt.Sprintf("flashrom -p internal -w %s 2>&1", filePath)
-	updateOut, err := runShell(updateCmd)
+	updateOut, err := runCommand("flashrom", "-p", "internal", "-w", filePath)
 	results["flashrom_output"] = strings.TrimSpace(updateOut)
 
 	if err != nil {
@@ -1189,7 +1203,7 @@ func handleBIOSConfigure(w http.ResponseWriter, r *http.Request) {
 				if *req.QuickBoot {
 					val = "Enabled"
 				}
-				if _, err := runShell(fmt.Sprintf("sum -c ChangeBiosCfg --setting 'Quick Boot=%s' 2>&1", val)); err == nil {
+				if _, err := runCommand("sum", "-c", "ChangeBiosCfg", "--setting", "Quick Boot="+val); err == nil {
 					changes = append(changes, fmt.Sprintf("quick_boot: %s", strings.ToLower(val)))
 					rebootRequired = true
 				} else {
@@ -1201,7 +1215,7 @@ func handleBIOSConfigure(w http.ResponseWriter, r *http.Request) {
 				if *req.QuietBoot {
 					val = "Enabled"
 				}
-				if _, err := runShell(fmt.Sprintf("sum -c ChangeBiosCfg --setting 'Quiet Boot=%s' 2>&1", val)); err == nil {
+				if _, err := runCommand("sum", "-c", "ChangeBiosCfg", "--setting", "Quiet Boot="+val); err == nil {
 					changes = append(changes, fmt.Sprintf("quiet_boot: %s", strings.ToLower(val)))
 					rebootRequired = true
 				} else {
@@ -1281,6 +1295,9 @@ func handleBIOSConfigure(w http.ResponseWriter, r *http.Request) {
 						continue
 					}
 					bootNum := line[4:8]
+					if !bootNumRe.MatchString(bootNum) {
+						continue
+					}
 
 					matched := false
 					for _, filter := range req.DisablePXENICs {
@@ -1307,7 +1324,7 @@ func handleBIOSConfigure(w http.ResponseWriter, r *http.Request) {
 					}
 
 					if matched {
-						if _, err := runShell(fmt.Sprintf("efibootmgr -b %s -B 2>&1", bootNum)); err == nil {
+						if _, err := runCommand("efibootmgr", "-b", bootNum, "-B"); err == nil {
 							desc := line
 							if idx := strings.Index(line, " "); idx > 0 {
 								desc = strings.TrimSpace(line[idx:])
@@ -1342,7 +1359,7 @@ func getDiskDetail(name string) DiskInfo {
 	disk := DiskInfo{Name: name, Type: "disk"}
 
 	// Basic info from lsblk
-	if out, err := runShell(fmt.Sprintf("lsblk -d -n -o SIZE,MODEL /dev/%s 2>/dev/null", name)); err == nil {
+	if out, err := runStdout("lsblk", "-d", "-n", "-o", "SIZE,MODEL", "/dev/"+name); err == nil {
 		fields := strings.Fields(strings.TrimSpace(out))
 		if len(fields) >= 1 {
 			disk.Size = fields[0]
@@ -1353,7 +1370,7 @@ func getDiskDetail(name string) DiskInfo {
 	}
 
 	// Partitions
-	if out, err := runShell(fmt.Sprintf("lsblk -n -o NAME,SIZE,FSTYPE,MOUNTPOINT /dev/%s 2>/dev/null", name)); err == nil {
+	if out, err := runStdout("lsblk", "-n", "-o", "NAME,SIZE,FSTYPE,MOUNTPOINT", "/dev/"+name); err == nil {
 		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 			fields := strings.Fields(line)
 			if len(fields) >= 2 {
@@ -1373,7 +1390,7 @@ func getDiskDetail(name string) DiskInfo {
 	}
 
 	// SMART info via smartctl
-	smartOut, smartErr := runShell(fmt.Sprintf("smartctl -i -H /dev/%s 2>/dev/null", name))
+	smartOut, smartErr := runStdout("smartctl", "-i", "-H", "/dev/"+name)
 	if smartErr == nil || smartOut != "" {
 		for _, line := range strings.Split(smartOut, "\n") {
 			line = strings.TrimSpace(line)
@@ -1406,7 +1423,7 @@ func getDiskDetail(name string) DiskInfo {
 	if strings.HasPrefix(name, "nvme") {
 		disk.MediaType = "NVMe"
 		disk.Transport = "NVMe"
-		if nvmeOut, err := runShell(fmt.Sprintf("nvme id-ctrl /dev/%s 2>/dev/null", name)); err == nil {
+		if nvmeOut, err := runStdout("nvme", "id-ctrl", "/dev/"+name); err == nil {
 			for _, line := range strings.Split(nvmeOut, "\n") {
 				line = strings.TrimSpace(line)
 				if strings.HasPrefix(line, "fr ") || strings.HasPrefix(line, "fr\t") {
@@ -1430,7 +1447,7 @@ func getDiskDetail(name string) DiskInfo {
 			}
 		}
 		// NVMe SMART health
-		if nvmeSmart, err := runShell(fmt.Sprintf("nvme smart-log /dev/%s 2>/dev/null", name)); err == nil {
+		if nvmeSmart, err := runStdout("nvme", "smart-log", "/dev/"+name); err == nil {
 			for _, line := range strings.Split(nvmeSmart, "\n") {
 				line = strings.TrimSpace(line)
 				if strings.HasPrefix(line, "temperature") {
@@ -1452,14 +1469,14 @@ func getDiskDetail(name string) DiskInfo {
 
 	// Fallback serial from sysfs
 	if disk.Serial == "" {
-		if serial, err := runShell(fmt.Sprintf("cat /sys/block/%s/device/serial 2>/dev/null", name)); err == nil && strings.TrimSpace(serial) != "" {
+		if serial, err := readFile(filepath.Join(sysBlockDir, name, "device", "serial")); err == nil && strings.TrimSpace(serial) != "" {
 			disk.Serial = strings.TrimSpace(serial)
 		}
 	}
 
 	// Fallback media type from sysfs rotational flag
 	if disk.MediaType == "" {
-		if rot, err := runShell(fmt.Sprintf("cat /sys/block/%s/queue/rotational 2>/dev/null", name)); err == nil {
+		if rot, err := readFile(filepath.Join(sysBlockDir, name, "queue", "rotational")); err == nil {
 			if strings.TrimSpace(rot) == "0" {
 				disk.MediaType = "SSD"
 			} else {
@@ -1470,8 +1487,8 @@ func getDiskDetail(name string) DiskInfo {
 
 	// Temperature from SMART attributes
 	if disk.Temperature == "" {
-		if tempOut, err := runShell(fmt.Sprintf("smartctl -A /dev/%s 2>/dev/null | grep -i 'temperature' | head -1", name)); err == nil {
-			fields := strings.Fields(strings.TrimSpace(tempOut))
+		if attrs, err := runStdout("smartctl", "-A", "/dev/"+name); err == nil {
+			fields := strings.Fields(strings.TrimSpace(firstLineContaining(attrs, "temperature", true)))
 			if len(fields) >= 10 {
 				disk.Temperature = fields[9] + " C"
 			}
@@ -1480,8 +1497,8 @@ func getDiskDetail(name string) DiskInfo {
 
 	// Power-on hours from SMART attributes
 	if disk.PowerOnHours == "" {
-		if pohOut, err := runShell(fmt.Sprintf("smartctl -A /dev/%s 2>/dev/null | grep 'Power_On_Hours' | head -1", name)); err == nil {
-			fields := strings.Fields(strings.TrimSpace(pohOut))
+		if attrs, err := runStdout("smartctl", "-A", "/dev/"+name); err == nil {
+			fields := strings.Fields(strings.TrimSpace(firstLineContaining(attrs, "Power_On_Hours", false)))
 			if len(fields) >= 10 {
 				disk.PowerOnHours = fields[9]
 			}
@@ -1514,6 +1531,10 @@ func handleDiskDetail(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Missing device name"})
 		return
 	}
+	if status, msg := checkBlockDevice(dev); status != http.StatusOK {
+		sendJSON(w, status, APIResponse{Status: "error", Error: msg})
+		return
+	}
 	disk := getDiskDetail(dev)
 	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: disk})
 }
@@ -1536,19 +1557,27 @@ func handleDiskPartition(w http.ResponseWriter, r *http.Request) {
 	if label == "" {
 		label = "gpt"
 	}
+	if label != "gpt" && label != "msdos" {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: fmt.Sprintf("Unsupported label %q: use gpt or msdos", label)})
+		return
+	}
+	if status, msg := checkBlockDevice(dev); status != http.StatusOK {
+		sendJSON(w, status, APIResponse{Status: "error", Error: msg})
+		return
+	}
 
 	devPath := "/dev/" + dev
 	results := make(map[string]string)
 
 	// Create partition table
-	if out, err := runShell(fmt.Sprintf("parted -s %s mklabel %s 2>&1", devPath, label)); err != nil {
+	if out, err := runCommand("parted", "-s", devPath, "mklabel", label); err != nil {
 		sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Failed to create partition table: " + strings.TrimSpace(out)})
 		return
 	}
 	results["label"] = label
 
 	// Create single partition spanning entire disk
-	if out, err := runShell(fmt.Sprintf("parted -s %s mkpart primary 0%% 100%% 2>&1", devPath)); err != nil {
+	if out, err := runCommand("parted", "-s", devPath, "mkpart", "primary", "0%", "100%"); err != nil {
 		sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Failed to create partition: " + strings.TrimSpace(out)})
 		return
 	}
@@ -1583,20 +1612,24 @@ func handleDiskFormat(w http.ResponseWriter, r *http.Request) {
 	devPath := "/dev/" + dev
 	results := make(map[string]string)
 
-	var mkfsCmd string
+	var mkfs []string
 	switch fstype {
 	case "ext4":
-		mkfsCmd = fmt.Sprintf("mkfs.ext4 -F %s 2>&1", devPath)
+		mkfs = []string{"mkfs.ext4", "-F", devPath}
 	case "xfs":
-		mkfsCmd = fmt.Sprintf("mkfs.xfs -f %s 2>&1", devPath)
+		mkfs = []string{"mkfs.xfs", "-f", devPath}
 	case "vfat", "fat32":
-		mkfsCmd = fmt.Sprintf("mkfs.vfat -F 32 %s 2>&1", devPath)
+		mkfs = []string{"mkfs.vfat", "-F", "32", devPath}
 	default:
-		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Unsupported filesystem: " + fstype + ". Use ext4, xfs, or vfat"})
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: fmt.Sprintf("Unsupported filesystem %q: use ext4, xfs, or vfat", fstype)})
+		return
+	}
+	if status, msg := checkBlockDevice(dev); status != http.StatusOK {
+		sendJSON(w, status, APIResponse{Status: "error", Error: msg})
 		return
 	}
 
-	if out, err := runShell(mkfsCmd); err != nil {
+	if out, err := runCommand(mkfs[0], mkfs[1:]...); err != nil {
 		sendJSON(w, http.StatusInternalServerError, APIResponse{
 			Status: "error",
 			Error:  "Format failed: " + strings.TrimSpace(out),
@@ -1625,6 +1658,10 @@ func handleDiskSecureErase(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Missing device name"})
 		return
 	}
+	if status, msg := checkBlockDevice(dev); status != http.StatusOK {
+		sendJSON(w, status, APIResponse{Status: "error", Error: msg})
+		return
+	}
 
 	devPath := "/dev/" + dev
 	results := make(map[string]string)
@@ -1632,11 +1669,11 @@ func handleDiskSecureErase(w http.ResponseWriter, r *http.Request) {
 	// NVMe secure erase
 	if strings.HasPrefix(dev, "nvme") {
 		results["method"] = "nvme-format"
-		if out, err := runShell(fmt.Sprintf("nvme format %s --ses=1 2>&1", devPath)); err != nil {
+		if out, err := runCommand("nvme", "format", devPath, "--ses=1"); err != nil {
 			results["error"] = strings.TrimSpace(out)
 			// Fallback to blkdiscard
 			results["method"] = "blkdiscard (nvme format failed)"
-			if out2, err2 := runShell(fmt.Sprintf("blkdiscard %s 2>&1", devPath)); err2 != nil {
+			if out2, err2 := runCommand("blkdiscard", devPath); err2 != nil {
 				results["blkdiscard_error"] = strings.TrimSpace(out2)
 				sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Secure erase failed", Data: results})
 				return
@@ -1651,18 +1688,18 @@ func handleDiskSecureErase(w http.ResponseWriter, r *http.Request) {
 	results["method"] = "ata-secure-erase"
 
 	// Check if drive supports secure erase
-	hdparmOut, _ := runShell(fmt.Sprintf("hdparm -I %s 2>/dev/null", devPath))
+	hdparmOut, _ := runStdout("hdparm", "-I", devPath)
 	if !strings.Contains(hdparmOut, "supported: enhanced erase") && !strings.Contains(hdparmOut, "supported") {
 		// Check basic support
 		if !strings.Contains(hdparmOut, "Security") {
 			results["method"] = "blkdiscard+dd (no ATA secure erase support)"
 			// Fallback: blkdiscard then dd
-			if out, err := runShell(fmt.Sprintf("blkdiscard %s 2>&1", devPath)); err == nil {
+			if out, err := runCommand("blkdiscard", devPath); err == nil {
 				results["blkdiscard"] = "success"
 			} else {
 				results["blkdiscard"] = strings.TrimSpace(out)
 			}
-			if out, err := runShell(fmt.Sprintf("dd if=/dev/zero of=%s bs=1M status=progress 2>&1", devPath)); err == nil {
+			if out, err := runCommand("dd", "if=/dev/zero", "of="+devPath, "bs=1M", "status=progress"); err == nil {
 				results["dd_zero"] = "success"
 			} else {
 				results["dd_zero"] = strings.TrimSpace(out)
@@ -1681,7 +1718,7 @@ func handleDiskSecureErase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set security password for erase
-	if out, err := runShell(fmt.Sprintf("hdparm --user-master u --security-set-pass Erase %s 2>&1", devPath)); err != nil {
+	if out, err := runCommand("hdparm", "--user-master", "u", "--security-set-pass", "Erase", devPath); err != nil {
 		results["set_password"] = strings.TrimSpace(out)
 		sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Failed to set security password", Data: results})
 		return
@@ -1692,10 +1729,10 @@ func handleDiskSecureErase(w http.ResponseWriter, r *http.Request) {
 	useEnhanced := strings.Contains(hdparmOut, "supported: enhanced erase")
 	if useEnhanced {
 		results["erase_type"] = "enhanced"
-		if out, err := runShell(fmt.Sprintf("hdparm --user-master u --security-erase-enhanced Erase %s 2>&1", devPath)); err != nil {
+		if out, err := runCommand("hdparm", "--user-master", "u", "--security-erase-enhanced", "Erase", devPath); err != nil {
 			results["erase_error"] = strings.TrimSpace(out)
 			// Try standard erase as fallback
-			if out2, err2 := runShell(fmt.Sprintf("hdparm --user-master u --security-erase Erase %s 2>&1", devPath)); err2 != nil {
+			if out2, err2 := runCommand("hdparm", "--user-master", "u", "--security-erase", "Erase", devPath); err2 != nil {
 				results["erase_fallback_error"] = strings.TrimSpace(out2)
 				sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Secure erase failed", Data: results})
 				return
@@ -1704,7 +1741,7 @@ func handleDiskSecureErase(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		results["erase_type"] = "standard"
-		if out, err := runShell(fmt.Sprintf("hdparm --user-master u --security-erase Erase %s 2>&1", devPath)); err != nil {
+		if out, err := runCommand("hdparm", "--user-master", "u", "--security-erase", "Erase", devPath); err != nil {
 			results["erase_error"] = strings.TrimSpace(out)
 			sendJSON(w, http.StatusInternalServerError, APIResponse{Status: "error", Error: "Secure erase failed", Data: results})
 			return
