@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### 2026-11-21
+- **fix(init):** virtio disks never showed up: the PCI coldplug loads only `virtio_pci`, and `virtio_blk`/`virtio_scsi` match the virtio bus, which init now coldplugs too. The #39 secure-erase boot test (two virtio-blk disks) failed on it (#42).
+
 ### 2026-11-20
 - **fix:** One disk-operation lock for POST /disks/image, /disks/wipe, /disks/partition, /disks/format and /disks/secure-erase, taken before their device checks and held to the answer; a concurrent one gets 409 (finding 0430c4ac66c0, #40).
 - **fix:** /disks/image refuses (507) when MemAvailable leaves nothing above the 256 MiB reserve, never falling back to the disk's size, and stops a download when MemAvailable drops under the reserve (finding 71a7c42c8aec, #40).

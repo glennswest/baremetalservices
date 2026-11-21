@@ -58,6 +58,12 @@ for dev in /sys/bus/pci/devices/*; do
         0x01*|0x02*|0x0c03*) /bin/busybox modprobe -q -b "$(/bin/busybox cat $dev/modalias)" 2>/dev/null ;;
     esac
 done
+# virtio devices sit on a bus of their own: the PCI coldplug above loads
+# only virtio_pci, and a virtio disk's driver (virtio_blk, virtio_scsi)
+# matches the virtio bus modalias, so coldplug that bus too (#42).
+for dev in /sys/bus/virtio/devices/*; do
+    [ -r "$dev/modalias" ] && /bin/busybox modprobe -q -b "$(/bin/busybox cat $dev/modalias)" 2>/dev/null
+done
 
 # USB mass storage (#36): a node's boot stick is a USB disk, and
 # POST /disks/image/{dev} writes its new image onto it. Class 0c03 (USB host
