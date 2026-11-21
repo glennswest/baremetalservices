@@ -350,11 +350,15 @@ func handleDiskWipe(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/disks/wipe"), "/")
 	name = strings.TrimPrefix(name, "dev/")
 	var disks []string
+	if name != "" && (strings.Contains(name, "/") || name == "." || name == "..") {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Invalid device name: " + name})
+		return
+	}
+	if !lockDiskOp(w) {
+		return
+	}
+	defer diskOpMu.Unlock()
 	if name != "" {
-		if strings.Contains(name, "/") || name == "." || name == ".." {
-			sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Invalid device name: " + name})
-			return
-		}
 		if _, err := os.Stat(filepath.Join(sysBlockDir, name, "size")); err != nil {
 			sendJSON(w, http.StatusNotFound, APIResponse{Status: "error", Error: "/dev/" + name + " is not a whole disk"})
 			return

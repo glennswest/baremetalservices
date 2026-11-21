@@ -184,16 +184,25 @@ An image write (`POST /disks/image/{dev}`, #36) puts a raw disk image — a
 stormbootx golden's `boot/<golden>-usb.img`, say — onto a whole disk, so a
 node's boot stick is upgraded from the maintenance image instead of being
 served. Parameters (form or query): `url=` (http/https, required),
-`sha256=` (64 hex digits, required), `keep_local_conf=true` (optional). One
-write runs at a time. The steps:
+`sha256=` (64 hex digits, required), `keep_local_conf=true` (optional).
+One disk operation runs at a time: an image write, a wipe, a partition, a
+format or a secure erase holds one lock from its device checks to its
+answer, and any of them asked for meanwhile gets HTTP 409 (#40). The steps:
 
 1. refuse a disk that is mounted, used as swap, held by device-mapper/md, or
    carries a stormblock slab (`STRMSLAB` at its start or at a partition's
    start) — the refusals `stormbootx-stick` makes (HTTP 409)
 2. `keep_local_conf`: read `stormboot/local.conf` and `stormboot.conf` off
-   the old stick's ESP (mounted read-only)
+   the old stick's ESP (mounted read-only). Every FAT-signed or GPT
+   EFI System partition is inspected; one that cannot be mounted or read
+   fails the request before anything is downloaded or written (HTTP 500).
+   Only an ESP without `stormboot/` (or without the file) is "nothing to
+   carry" (#40)
 3. download the image into RAM; refuse it unless its sha256 is the given one
-   and it fits the disk (and free memory) (HTTP 422; a failed download is 502)
+   and it fits the disk (HTTP 422; a failed download is 502). It must also
+   fit in MemAvailable less a 256 MiB reserve: no memory above the reserve
+   is a refusal before the download, and MemAvailable falling under the
+   reserve while it streams stops it (HTTP 507, #40)
 4. a GPT image must have its GPT at the disk's logical block size (HTTP 422)
 5. refuse again, zero the old disk's last MiB, write the image, fsync
 6. read the written range back past the page cache and compare its sha256

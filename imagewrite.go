@@ -37,7 +37,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -53,9 +52,6 @@ const (
 	stickLocalConf   = "stormboot/local.conf"
 	stickConf        = "stormboot/stormboot.conf"
 )
-
-// imageMu lets one image write run at a time.
-var imageMu sync.Mutex
 
 type imageWriteResult struct {
 	Device    string     `json:"device"`
@@ -98,7 +94,7 @@ func imageRefusal(disk string) string {
 	for _, p := range parts {
 		offs = append(offs, p.Start)
 	}
-	at, slab, err := slabAt("/dev/"+disk, offs)
+	at, slab, err := slabAt(filepath.Join(devDir, disk), offs)
 	if err != nil {
 		return "cannot be read to check for a slab: " + err.Error()
 	}
@@ -123,6 +119,53 @@ func memAvailable() int64 {
 // errImage marks a refusal of the image itself (not a failure of the disk).
 var errImage = errors.New("image refused")
 
+// errNoMemory marks a download refused for want of RAM to hold it (finding
+// 71a7c42c8aec): the maintenance image runs from RAM, so the downloaded
+// image is RAM too, and running out would take the API or the node down.
+var errNoMemory = errors.New("not enough memory for the image")
+
+// memAvailableFn is memAvailable (tests replace it).
+var memAvailableFn = memAvailable
+
+// imageMemCheckEvery is how often (bytes downloaded) fetchImage re-reads
+// MemAvailable while it streams.
+const imageMemCheckEvery = 16 << 20
+
+// imageDownloadLimit is the most an image may be: the disk's size, or what
+// MemAvailable leaves above imageRAMReserve if that is less. An unknown
+// MemAvailable, or one at or under the reserve, is a refusal, never the
+// disk's size.
+func imageDownloadLimit(diskSize, avail int64) (int64, error) {
+	if avail <= 0 {
+		return 0, fmt.Errorf("%w: MemAvailable unknown", errNoMemory)
+	}
+	budget := avail - imageRAMReserve
+	if budget <= 0 {
+		return 0, fmt.Errorf("%w: MemAvailable %d bytes, %d must stay free", errNoMemory, avail, imageRAMReserve)
+	}
+	if budget < diskSize {
+		return budget, nil
+	}
+	return diskSize, nil
+}
+
+// memGuard is a writer that fails once MemAvailable drops under
+// imageRAMReserve, read every imageMemCheckEvery bytes written.
+type memGuard struct {
+	since int64
+}
+
+func (g *memGuard) Write(p []byte) (int, error) {
+	g.since += int64(len(p))
+	if g.since >= imageMemCheckEvery {
+		g.since = 0
+		if avail := memAvailableFn(); avail < imageRAMReserve {
+			return 0, fmt.Errorf("%w: MemAvailable fell to %d bytes while downloading", errNoMemory, avail)
+		}
+	}
+	return len(p), nil
+}
+
 // fetchImage downloads url into a new file in dir, at most limit bytes, and
 // checks its sha256 against want (lower-case hex).
 func fetchImage(url, want, dir string, limit int64) (string, int64, error) {
@@ -143,7 +186,7 @@ func fetchImage(url, want, dir string, limit int64) (string, int64, error) {
 	}
 	path := f.Name()
 	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, limit+1))
+	n, err := io.Copy(io.MultiWriter(&memGuard{}, f, h), io.LimitReader(resp.Body, limit+1))
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -320,29 +363,136 @@ func withVfat(dev string, readonly bool, fn func(mnt string) error) error {
 	return ferr
 }
 
+// devDir is where partitions' device nodes are (tests replace it), and
+// vfatMount mounts one (withVfat; tests replace it).
+var (
+	devDir    = "/dev"
+	vfatMount = withVfat
+)
+
+// espTypeGUID is the EFI System partition type C12A7328-F81F-11D2-BA4B-
+// 00A0C93EC93B as a GPT entry stores it (the first three fields little-endian).
+var espTypeGUID = []byte{0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11, 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b}
+
+// gptESPStarts is the byte offset of every EFI System partition in disk's
+// GPT (primary header at LBA 1, lbs-byte blocks); none if it has no GPT.
+func gptESPStarts(disk string, lbs int64) (map[int64]bool, error) {
+	f, err := os.Open(disk)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	hdr := make([]byte, 92)
+	if n, _ := f.ReadAt(hdr, lbs); n < len(hdr) || string(hdr[:8]) != "EFI PART" {
+		return nil, nil
+	}
+	le := func(b []byte) int64 {
+		var v int64
+		for i := len(b) - 1; i >= 0; i-- {
+			v = v<<8 | int64(b[i])
+		}
+		return v
+	}
+	entriesLBA, count, esize := le(hdr[72:80]), le(hdr[80:84]), le(hdr[84:88])
+	if count <= 0 || count > 1024 || esize < 128 || esize > 4096 {
+		return nil, fmt.Errorf("GPT header: %d entries of %d bytes", count, esize)
+	}
+	tab := make([]byte, count*esize)
+	if _, err := f.ReadAt(tab, entriesLBA*lbs); err != nil {
+		return nil, fmt.Errorf("GPT entries at block %d: %w", entriesLBA, err)
+	}
+	starts := map[int64]bool{}
+	for i := int64(0); i < count; i++ {
+		e := tab[i*esize : (i+1)*esize]
+		if bytes.Equal(e[:16], espTypeGUID) {
+			starts[le(e[32:40])*lbs] = true
+		}
+	}
+	return starts, nil
+}
+
+// fatSigned says whether dev starts with a FAT boot sector (55 AA, and
+// "FAT" where FAT12/16 or FAT32 name their type).
+func fatSigned(dev string) (bool, error) {
+	f, err := os.Open(dev)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	b := make([]byte, 512)
+	if _, err := io.ReadFull(f, b); err != nil {
+		return false, fmt.Errorf("read %s: %w", dev, err)
+	}
+	return b[510] == 0x55 && b[511] == 0xaa &&
+		(string(b[54:57]) == "FAT" || string(b[82:85]) == "FAT"), nil
+}
+
+// readStickFile reads one file off a mounted ESP: nil if it is not there,
+// an error if it is there and cannot be read.
+func readStickFile(mnt, rel string) ([]byte, error) {
+	b, err := os.ReadFile(filepath.Join(mnt, rel))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", rel, err)
+	}
+	return b, nil
+}
+
 // readStick finds the partition of disk whose FAT holds stormboot/ and reads
 // its local.conf and stormboot.conf. part is "" when no partition has one.
-func readStick(disk string) (part string, files stickFiles, err error) {
+//
+// Every partition that is FAT-signed or typed EFI System in the GPT is
+// inspected, and one that cannot be (read, mounted, listed, unmounted) is an
+// error, never "nothing there" (finding f2990cf34046): with keep_local_conf
+// the caller must not overwrite a disk whose local.conf it could not read.
+func readStick(disk string, lbs int64) (part string, files stickFiles, err error) {
 	parts, err := diskPartitions(disk)
 	if err != nil {
 		return "", files, err
 	}
+	esps, err := gptESPStarts(filepath.Join(devDir, disk), lbs)
+	if err != nil {
+		return "", files, fmt.Errorf("%s/%s: %w", devDir, disk, err)
+	}
 	for _, p := range parts {
+		dev := filepath.Join(devDir, p.Name)
+		fat, err := fatSigned(dev)
+		if err != nil && !esps[p.Start] {
+			// Not an ESP by type: a partition too short to hold a boot
+			// sector is no ESP either; any other read error is.
+			if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+				continue
+			}
+			return "", files, err
+		}
+		if !fat && !esps[p.Start] {
+			continue
+		}
 		found := false
-		merr := withVfat("/dev/"+p.Name, true, func(mnt string) error {
-			if st, err := os.Stat(filepath.Join(mnt, stickDir)); err != nil || !st.IsDir() {
+		merr := vfatMount(dev, true, func(mnt string) error {
+			st, err := os.Stat(filepath.Join(mnt, stickDir))
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("stat %s/: %w", stickDir, err)
+			}
+			if !st.IsDir() {
 				return nil
 			}
 			found = true
-			if b, err := os.ReadFile(filepath.Join(mnt, stickLocalConf)); err == nil {
-				files.Local = b
+			if files.Local, err = readStickFile(mnt, stickLocalConf); err != nil {
+				return err
 			}
-			if b, err := os.ReadFile(filepath.Join(mnt, stickConf)); err == nil {
-				files.Conf = b
-			}
-			return nil
+			files.Conf, err = readStickFile(mnt, stickConf)
+			return err
 		})
-		if merr == nil && found {
+		if merr != nil {
+			return "", stickFiles{}, fmt.Errorf("%s (FAT %v, GPT ESP %v) could not be inspected: %w", dev, fat, esps[p.Start], merr)
+		}
+		if found {
 			return p.Name, files, nil
 		}
 	}
@@ -369,9 +519,9 @@ func waitPartitions(disk string) []partRange {
 }
 
 // carryLocalConf writes the merged local.conf onto the new stick's ESP.
-func carryLocalConf(disk string, old stickFiles) (string, []string, error) {
+func carryLocalConf(disk string, lbs int64, old stickFiles) (string, []string, error) {
 	waitPartitions(disk)
-	part, cur, err := readStick(disk)
+	part, cur, err := readStick(disk, lbs)
 	if err != nil {
 		return "", nil, err
 	}
@@ -382,7 +532,7 @@ func carryLocalConf(disk string, old stickFiles) (string, []string, error) {
 	if !write {
 		return part, nil, nil
 	}
-	err = withVfat("/dev/"+part, false, func(mnt string) error {
+	err = vfatMount(filepath.Join(devDir, part), false, func(mnt string) error {
 		f, err := os.OpenFile(filepath.Join(mnt, stickLocalConf), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 		if err != nil {
 			return err
@@ -409,7 +559,7 @@ func carryLocalConf(disk string, old stickFiles) (string, []string, error) {
 
 // writeDiskImage does the whole write; the int is the HTTP status.
 func writeDiskImage(disk, url, want string, keepLocal bool) (imageWriteResult, int) {
-	dev := "/dev/" + disk
+	dev := filepath.Join(devDir, disk)
 	res := imageWriteResult{Device: dev, URL: url, Steps: []wipeStep{}}
 	step := func(name, out string, err error) bool {
 		s := wipeStep{Step: name, OK: err == nil, Output: strings.TrimSpace(out)}
@@ -443,7 +593,7 @@ func writeDiskImage(disk, url, want string, keepLocal bool) (imageWriteResult, i
 
 	var old stickFiles
 	if keepLocal {
-		part, files, err := readStick(disk)
+		part, files, err := readStick(disk, lbs)
 		out := "no partition with " + stickDir + "/ on the old disk: nothing to carry"
 		if part != "" {
 			old = files
@@ -454,16 +604,23 @@ func writeDiskImage(disk, url, want string, keepLocal bool) (imageWriteResult, i
 		}
 	}
 
-	limit := size
-	if avail := memAvailable() - imageRAMReserve; avail > 0 && avail < limit {
-		limit = avail
+	limit, err := imageDownloadLimit(size, memAvailableFn())
+	out := ""
+	if err == nil {
+		out = fmt.Sprintf("image may be at most %d bytes", limit)
+	}
+	if !step("memory", out, err) {
+		return res, http.StatusInsufficientStorage
 	}
 	path, n, err := fetchImage(url, want, "", limit)
-	out := ""
+	out = ""
 	if err == nil {
 		out = fmt.Sprintf("%d bytes, sha256 %s", n, want)
 	}
 	if !step("download", out, err) {
+		if errors.Is(err, errNoMemory) {
+			return res, http.StatusInsufficientStorage
+		}
 		if errors.Is(err, errImage) {
 			return res, http.StatusUnprocessableEntity
 		}
@@ -533,7 +690,7 @@ func writeDiskImage(disk, url, want string, keepLocal bool) (imageWriteResult, i
 	}
 
 	if keepLocal && (old.Local != nil || old.Conf != nil) {
-		part, kept, err := carryLocalConf(disk, old)
+		part, kept, err := carryLocalConf(disk, lbs, old)
 		out := "nothing to carry"
 		if len(kept) > 0 {
 			out = "/dev/" + part + ": kept " + strings.Join(kept, ", ")
@@ -579,15 +736,14 @@ func handleDiskImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	keep, _ := strconv.ParseBool(r.FormValue("keep_local_conf"))
+	if !lockDiskOp(w) {
+		return
+	}
+	defer diskOpMu.Unlock()
 	if _, err := os.Stat(filepath.Join(sysBlockDir, name, "size")); err != nil {
 		sendJSON(w, http.StatusNotFound, APIResponse{Status: "error", Error: "/dev/" + name + " is not a whole disk"})
 		return
 	}
-	if !imageMu.TryLock() {
-		sendJSON(w, http.StatusConflict, APIResponse{Status: "error", Error: "another image write is running"})
-		return
-	}
-	defer imageMu.Unlock()
 
 	res, status := writeDiskImage(name, url, want, keep)
 	if status != http.StatusOK {

@@ -1472,6 +1472,10 @@ func handleDiskPartition(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: fmt.Sprintf("Unsupported label %q: use gpt or msdos", label)})
 		return
 	}
+	if !lockDiskOp(w) {
+		return
+	}
+	defer diskOpMu.Unlock()
 	if status, msg := checkBlockDevice(dev); status != http.StatusOK {
 		sendJSON(w, status, APIResponse{Status: "error", Error: msg})
 		return
@@ -1535,6 +1539,10 @@ func handleDiskFormat(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: fmt.Sprintf("Unsupported filesystem %q: use ext4, xfs, or vfat", fstype)})
 		return
 	}
+	if !lockDiskOp(w) {
+		return
+	}
+	defer diskOpMu.Unlock()
 	if status, msg := checkBlockDevice(dev); status != http.StatusOK {
 		sendJSON(w, status, APIResponse{Status: "error", Error: msg})
 		return
@@ -1569,6 +1577,10 @@ func handleDiskSecureErase(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Missing device name"})
 		return
 	}
+	if !lockDiskOp(w) {
+		return
+	}
+	defer diskOpMu.Unlock()
 	if status, msg := checkBlockDevice(dev); status != http.StatusOK {
 		sendJSON(w, status, APIResponse{Status: "error", Error: msg})
 		return

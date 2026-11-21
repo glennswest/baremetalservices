@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2026-11-20
+- **fix:** One disk-operation lock for POST /disks/image, /disks/wipe, /disks/partition, /disks/format and /disks/secure-erase, taken before their device checks and held to the answer; a concurrent one gets 409 (finding 0430c4ac66c0, #40).
+- **fix:** /disks/image refuses (507) when MemAvailable leaves nothing above the 256 MiB reserve, never falling back to the disk's size, and stops a download when MemAvailable drops under the reserve (finding 71a7c42c8aec, #40).
+- **fix:** keep_local_conf: an ESP (FAT-signed or GPT EFI System) that cannot be mounted or read fails the write before any download or change, instead of being taken as "nothing to carry" (finding f2990cf34046, #40).
+- **test:** `TestDiskOpLockShared`, `TestImageDownloadLimit`, `TestFetchImageStopsWhenMemoryRunsOut`, `TestReadStick`, `TestWriteDiskImageRefusesBeforeAnyChange` (#40).
 - **fix(disks):** `POST /disks/secure-erase/{dev}` on a disk with no ATA security said "Disk wiped" with HTTP 200 whatever `dd` did (review finding 516e4f885acb, #39). The whole device is now zeroed from Go (every write checked, fsync) and read back past the cache at 16 points, head and tail included; a failed write or a non-zero read is HTTP 500.
 - **fix(bios):** `disable_pxe_nics` matched EFI boot-entry description text, so a filter like `PXE` passed the last-NIC safeguard (it matches no driver) and then removed every network entry (review finding 8fe507b0417b, #39). A filter now resolves to physical NICs by driver/vendor only; an entry is removed only when it carries one of their MACs (`MAC(…)`, colon or dash form); nothing is removed when no network entry of a kept NIC would remain.
 - **fix(disks):** NVMe `smart_health` was `PASSED` whenever `nvme smart-log` ran (review finding be3bdc3dcdf0, #39). It now comes from `critical_warning`: 0 is PASSED, any bit FAILED, unreadable unknown.
