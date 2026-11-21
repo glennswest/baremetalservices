@@ -602,19 +602,10 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
         </div>
 
         <footer>
-            <p>Bare Metal Services API available at <a href="/api/" style="color: #00d4ff;">:8080</a></p>
+            <p>Bare Metal Services API at <a href="/api/" style="color: #00d4ff;">/api/</a> (and on :8080)</p>
         </footer>
     </div>
-    <script>
-    function diskAction(action, dev) {
-        if (!confirm('Are you sure you want to ' + action + ' /dev/' + dev + '? This is DESTRUCTIVE and cannot be undone.')) return;
-        fetch('http://' + location.hostname + ':8080/disks/' + action + '/' + dev, {method: 'POST'})
-            .then(r => r.json())
-            .then(d => { alert(JSON.stringify(d, null, 2)); location.reload(); })
-            .catch(e => alert('Error: ' + e));
-    }
-    </script>
-</body>
+` + webUIScript + `</body>
 </html>`
 
 	w.Header().Set("Content-Type", "text/html")
@@ -1684,13 +1675,27 @@ func handleDiskSecureErase(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Message: "ATA Secure Erase complete", Data: results})
 }
 
-func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = defaultPort
-	}
+// webUIScript is the web UI's disk-action script. It posts to /api/ on the
+// page's own origin (#41).
+const webUIScript = `    <script>
+    function diskAction(action, dev) {
+        if (!confirm('Are you sure you want to ' + action + ' /dev/' + dev + '? This is DESTRUCTIVE and cannot be undone.')) return;
+        // Same origin as this page (/api/ on the web port, #41): the browser
+        // lets the script read the answer, so a wipe that worked shows as one.
+        fetch('/api/disks/' + action + '/' + encodeURIComponent(dev), {method: 'POST'})
+            .then(r => r.text().then(t => {
+                let d = t;
+                try { d = JSON.stringify(JSON.parse(t), null, 2); } catch (e) {}
+                alert((r.ok ? 'OK' : 'FAILED') + ' (HTTP ' + r.status + ') ' + action + ' /dev/' + dev + '\n\n' + d);
+                location.reload();
+            }))
+            .catch(e => alert('No answer from the agent for ' + action + ' /dev/' + dev + ': outcome unknown, check /disks before retrying.\n' + e));
+    }
+    </script>
+`
 
-	// API server mux (port 8080)
+// newAPIMux is the JSON API (port 8080, PORT env).
+func newAPIMux() *http.ServeMux {
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("/", handleRoot)
 	apiMux.HandleFunc("/health", handleHealth)
@@ -1716,10 +1721,27 @@ func main() {
 	apiMux.HandleFunc("/disks/wipe", handleDiskWipe)
 	apiMux.HandleFunc("/disks/wipe/", handleDiskWipe)
 	apiMux.HandleFunc("/disks/image/", handleDiskImage)
+	return apiMux
+}
 
-	// Web UI server mux (port 80)
+// newWebMux is the web UI (port 80). It also serves the API under /api/, so
+// the UI's requests are same-origin and the browser hands their answers to
+// the page (#41; the API sends no CORS headers).
+func newWebMux(api http.Handler) *http.ServeMux {
 	webMux := http.NewServeMux()
 	webMux.HandleFunc("/", handleWebUI)
+	webMux.Handle("/api/", http.StripPrefix("/api", api))
+	return webMux
+}
+
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = defaultPort
+	}
+
+	apiMux := newAPIMux()
+	webMux := newWebMux(apiMux)
 
 	// Start API server
 	go func() {

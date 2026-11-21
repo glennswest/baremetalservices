@@ -5,7 +5,7 @@ A bare metal server management and provisioning system that runs as a boot image
 ## Architecture
 
 - **Go binary** serving two HTTP servers simultaneously:
-  - **Port 80** - Web UI dashboard with auto-refresh (fixed)
+  - **Port 80** - Web UI dashboard with auto-refresh (fixed); also serves the same API under `/api/` (e.g. `http://server1/api/disks`), so the UI's buttons are same-origin requests
   - **Port 8080** - JSON REST API (`PORT` environment variable overrides it; `init` does not set it)
 - **Boot image** based on Alpine Linux with a custom init script, built as two goldens: a 4K GPT disk for network boot through stormbootx, and a hybrid BIOS+UEFI ISO for BMC virtual CD and USB
 - Boots, discovers hardware, and exposes management interfaces over the network
@@ -231,6 +231,12 @@ The web dashboard on port 80 provides:
 - **lsblk** - raw block device listing
 
 Auto-refreshes every 30 seconds.
+
+The Wipe and Secure Erase buttons post to `/api/disks/...` on the UI's own
+port and show the answer with its HTTP status (OK/FAILED and the JSON). Only
+when no answer arrives at all (connection lost, agent gone) does the UI say
+the outcome is unknown; check `/disks` before retrying. The API sends no CORS
+headers; the UI never calls :8080 from the browser (#41).
 
 ## CLI Tools Available
 

@@ -45,7 +45,8 @@ cleanup() { [ -n "$QPID" ] && kill "$QPID" 2>/dev/null; [ -n "$HPID" ] && kill "
 trap cleanup EXIT
 
 ACCEL=tcg; [[ -w /dev/kvm ]] && ACCEL=kvm
-PORT=$(( 20000 + RANDOM % 20000 ))
+PORT=$(( 20000 + RANDOM % 19999 ))
+WPORT=$(( PORT + 1 ))   # the web UI (:80), which also serves the API under /api/ (#41)
 cp "$IMAGE" "$W/image"     # the guest may write to its disk; never to the golden
 
 for d in hdd ssd; do truncate -s 4G "$W/$d.img"; done
@@ -118,7 +119,7 @@ say "booting $(basename "$IMAGE") ($(du -h "$IMAGE" | cut -f1), $ACCEL), API on 
 qemu-system-x86_64 -machine q35,accel=$ACCEL -cpu max -smp 2 -m 4096 -display none -no-reboot \
     "${FW[@]}" "${DISK[@]}" "${SCRATCH[@]}" \
     -device ipmi-bmc-sim,id=bmc0 -device isa-ipmi-kcs,bmc=bmc0 \
-    -netdev user,id=n0,hostfwd=tcp:127.0.0.1:$PORT-:8080 -device e1000e,netdev=n0 \
+    -netdev user,id=n0,hostfwd=tcp:127.0.0.1:$PORT-:8080,hostfwd=tcp:127.0.0.1:$WPORT-:80 -device e1000e,netdev=n0 \
     -netdev user,id=n1,net=10.0.3.0/24 -device vmxnet3,netdev=n1 \
     -serial file:"$W/serial.log" -serial file:"$W/console.log" &
 QPID=$!
@@ -207,6 +208,19 @@ PY
 done
 out=$(api -X POST "http://127.0.0.1:$PORT/disks/wipe/nosuchdisk")
 grep -q '"status":"error"' <<<"$out" || fail "wipe: a missing disk did not fail: $out"
+
+# Web UI (#41, cd8c1351e130): its disk buttons post to /api/ on its own
+# origin (the API on :8080 is another origin and sends no CORS headers), and
+# the web port answers them with the API's JSON and status.
+page=$(curl -s --max-time 300 "http://127.0.0.1:$WPORT/") || fail "web UI: GET / on :80 did not answer"
+grep -q "fetch('/api/disks/'" <<<"$page" || fail "web UI: no same-origin /api/disks/ fetch in the page"
+grep -q ':8080/disks' <<<"$page" && fail "web UI: the page still posts to :8080"
+out=$(curl -s --max-time 30 "http://127.0.0.1:$WPORT/api/health")
+grep -q '"status":"ok"' <<<"$out" || fail "web UI: /api/health on :80: $out"
+out=$(curl -s --max-time 60 -w '\n%{http_code}' -X POST "http://127.0.0.1:$WPORT/api/disks/wipe/nosuchdisk")
+[ "${out##*$'\n'}" = 404 ] && grep -q '"status":"error"' <<<"$out" \
+    || fail "web UI: POST /api/disks/wipe/nosuchdisk on :80 did not answer the JSON 404: $out"
+say "web UI ok: page posts to /api/ on its own origin; :80/api/ answers (health ok, missing-disk wipe 404 JSON)"
 
 # NVMe health (#39, be3bdc3dcdf0): PASSED with no warning, FAILED once
 # critical_warning has the reliability bit (QEMU's smart_critical_warning).

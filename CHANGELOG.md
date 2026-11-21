@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### 2026-11-21
+- **fix(webui):** The web UI (port 80) posted Wipe/Secure Erase to `:8080`, another browser origin; with no CORS headers the browser hid the answer and the UI said "Error" even when the wipe had worked (review finding cd8c1351e130, #41). The web port now also serves the API under `/api/` (same handlers), the buttons post there, and the UI shows the HTTP status and JSON answer, "outcome unknown" only when none came. No CORS headers are added. The footer link `/api/` now reaches the API's endpoint list.
+- **test:** `TestWebUIScriptSameOrigin`, `TestWebMuxServesAPI`; the QEMU boot test fetches the page on :80 and posts to `:80/api/disks/wipe/nosuchdisk` (JSON 404) (#41).
 - **fix(init):** virtio disks never showed up: the PCI coldplug loads only `virtio_pci`, and `virtio_blk`/`virtio_scsi` match the virtio bus, which init now coldplugs too. The #39 secure-erase boot test (two virtio-blk disks) failed on it (#42).
 
 ### 2026-11-20
