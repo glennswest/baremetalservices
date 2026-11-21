@@ -36,6 +36,18 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        /health, /system, /boot/order answer on server3, then `--off`.
 6. [x] README.
 
+### Issue #40 — review: 3 major findings in imagewrite.go (P1, 2026-11-20)
+1. [ ] 0430c4ac66c0: one disk-operation lock (diskOpMu) for image, wipe,
+       partition, format and secure-erase, taken before their device checks
+       and held to the end; a second request gets 409.
+2. [ ] 71a7c42c8aec: the download budget is MemAvailable - 256 MiB reserve;
+       refuse (507) when that is <= 0 or unknown, never fall back to disk
+       size; MemAvailable re-checked while streaming.
+3. [ ] f2990cf34046: readStick: a FAT-signed or GPT ESP-typed partition that
+       cannot be mounted/read is an error (abort before any write); only a
+       missing stormboot/ or file is "nothing to carry".
+4. [ ] Unit tests per finding; sc-build test/run.sh; CHANGELOG/README.
+
 ### Issue #39 — review: 4 major findings in main.go (P1, 2026-11-20)
 1. [ ] 516e4f885acb: secure-erase fallback (no ATA security) zeroes the whole
        device in Go (no dd), reads back head/tail/samples past the cache, and
