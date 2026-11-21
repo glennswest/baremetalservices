@@ -36,6 +36,16 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        /health, /system, /boot/order answer on server3, then `--off`.
 6. [x] README.
 
+### Issue #41 — review: 1 minor finding (web UI, 2026-11-21)
+1. [ ] cd8c1351e130: the UI on :80 fetched :8080 (cross-origin, no CORS),
+       so a wipe/secure-erase that worked showed "Error". The web port now
+       also serves the API under `/api/` (same handlers, StripPrefix); the
+       UI posts to `/api/disks/...` and shows the HTTP status and body,
+       "outcome unknown" only when no answer came. No CORS headers.
+2. [ ] Unit test (webui_test.go); boot test: GET / on :80 has the relative
+       fetch, POST /api/disks/wipe/nosuchdisk on :80 answers the JSON error.
+3. [ ] CHANGELOG, README; sc-build test/run.sh all PASS; close #41.
+
 ### Issue #40 — review: 3 major findings in imagewrite.go (done 2026-11-21)
 1. [x] 0430c4ac66c0: one disk-operation lock (diskOpMu, diskop.go) for image,
        wipe, partition, format and secure-erase, taken before their device
