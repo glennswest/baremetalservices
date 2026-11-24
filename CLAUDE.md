@@ -34,6 +34,10 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        (master/owner only, #829), so server3's boot is handed to the
        master with `wait-hardware` (media baremetalservices-maint). Pass:
        /health, /system, /boot/order answer on server3, then `--off`.
+       2026-11-24: that wait was released by stormcentral#1703's stale
+       sweep on "forge1 passed 12.97" (not this boot; no server3 result
+       was ever posted). Re-filed `wait-hardware` (server3,
+       baremetalservices-maint). Still left: the server3 boot.
 6. [x] README.
 
 ### Issue #41 — review: 1 minor finding (web UI, done 2026-11-21)
