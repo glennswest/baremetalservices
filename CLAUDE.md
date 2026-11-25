@@ -37,7 +37,10 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        2026-11-24: that wait was released by stormcentral#1703's stale
        sweep on "forge1 passed 12.97" (not this boot; no server3 result
        was ever posted). Re-filed `wait-hardware` (server3,
-       baremetalservices-maint). Still left: the server3 boot.
+       baremetalservices-maint). 2026-11-25, master: hardware time is
+       the owner's to schedule; that wait is cancelled and none is to be
+       filed. Issue stays open; the master re-proposes it when the owner
+       names the machine and the day. Nothing to do here until then.
 6. [x] README.
 
 ### Issue #41 — review: 1 minor finding (web UI, done 2026-11-21)
@@ -137,7 +140,8 @@ For forge1's stormbootx USB stick (owner: "dont serve it, upgrade the image on u
        (2026-10-01): don't wait on the tarball; out-of-band sum from
        stormcentral's VM already covers the X9s with the OOB key, so in-band
        sum is a nice-to-have: P3, issue stays open. Next: try in-band on an X9
-       once one boots this image (needs #2 / stormcentral#236).
+       once one boots this image. That is owner-scheduled hardware (master,
+       2026-11-25, on #2): no wait is filed; it comes with #2's boot.
 
 ### Issue #15 — POST /disks/wipe said ok on an HDD and wiped nothing (done 2026-10-01)
 - wipe.go: refuse in-use disks; wipefs parts + disk; sgdisk --zap-all;
