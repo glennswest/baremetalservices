@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2026-11-25
+- **docs:** #14 closed by the master's decision on the verified glibc fix (2315d6d: `sum`/`mlxup` run on the musl image). In-band `sum` BIOS config on a real X9 moved to its own issue, #45 (P3, needs owner-scheduled hardware). README now points to #45.
 - **docs:** #2 closed by the master's decision: the network boot of the -maint golden through stormbootx is proven on server1 (2026-10-10, #24); server3 was not booted. README says which blade it was verified on.
 
 ### 2026-11-21

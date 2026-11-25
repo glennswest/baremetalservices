@@ -124,9 +124,11 @@ For forge1's stormbootx USB stick (owner: "dont serve it, upgrade the image on u
 - #31: maint UKI ignores the ACPI power button (needs acpid or an input reader running poweroff).
 - #27 (P3): init's boot messages do not reach the serial consoles.
 - #28 (P3): decision on where the X9SRD-F BIOS 3.2b file comes from.
+- #45 (P3, needs-owner): in-band sum BIOS config on a real X9 (split from #14);
+  waits for the owner to name an X9 and a day; sum_bios.ko source is an owner decision.
 - #29 (P3): this file's #2 notes are stale once stormcentral#236/stormbootx#56 closed (done above).
 
-### Issue #14 — sum is glibc, the image is musl (P3, glibc part done)
+### Issue #14 — sum is glibc, the image is musl (closed 2026-11-25; in-band split to #45)
 1. [x] build.sh ships Debian trixie's glibc runtime (libc6, libgcc-s1, zlib1g,
        libstdc++6) in /usr/lib/x86_64-linux-gnu, /lib64/ld-linux-x86-64.so.2
        -> its loader (was gcompat's shim). sum in /opt/sum + ExternalData.
@@ -135,12 +137,13 @@ For forge1's stormbootx USB stick (owner: "dont serve it, upgrade the image on u
 3. [x] sc-build test/run.sh: all three boots PASS; with an emulated BMC,
        sum runs, finds IPMI, then: "BIOS does not support virtual driver and
        Driver sum_bios.ko does not exist."
-4. [ ] In-band GetCurrentBiosCfg/ChangeBiosCfg on an X9. If the X9 BIOS has
+4. [-] Split to #45 (P3, needs-owner) by the master 2026-11-25; #14 closed
+       on the verified glibc fix. Was: in-band GetCurrentBiosCfg/ChangeBiosCfg on an X9. If the X9 BIOS has
        no "virtual driver", sum needs sum_bios.ko (built from driver/Source in
        Supermicro's SUM tarball, which the repo doesn't have). Owner's answer
        (2026-10-01): don't wait on the tarball; out-of-band sum from
        stormcentral's VM already covers the X9s with the OOB key, so in-band
-       sum is a nice-to-have: P3, issue stays open. Next: try in-band on an X9
+       sum is a nice-to-have: P3, now tracked on #45. Next: try in-band on an X9
        once one boots this image. That is owner-scheduled hardware (master,
        2026-11-25): no wait is filed; needs the owner to name an X9 and a day.
 
