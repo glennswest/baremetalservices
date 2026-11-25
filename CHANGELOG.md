@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### 2026-11-25
+- **docs:** #2 closed by the master's decision: the network boot of the -maint golden through stormbootx is proven on server1 (2026-10-10, #24); server3 was not booted. README says which blade it was verified on.
+
 ### 2026-11-21
 - **fix(webui):** The web UI (port 80) posted Wipe/Secure Erase to `:8080`, another browser origin; with no CORS headers the browser hid the answer and the UI said "Error" even when the wipe had worked (review finding cd8c1351e130, #41). The web port now also serves the API under `/api/` (same handlers), the buttons post there, and the UI shows the HTTP status and JSON answer, "outcome unknown" only when none came. No CORS headers are added. The footer link `/api/` now reaches the API's endpoint list.
 - **test:** `TestWebUIScriptSameOrigin`, `TestWebMuxServesAPI`; the QEMU boot test fetches the page on :80 and posts to `:80/api/disks/wipe/nosuchdisk` (JSON 404) (#41).

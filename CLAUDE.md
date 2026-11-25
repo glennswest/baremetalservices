@@ -16,7 +16,7 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 
 ## Work plan
 
-### Issue #2 — golden on dev + network boot via stormbootx (P1)
+### Issue #2 — golden on dev + network boot via stormbootx (P1, closed 2026-11-25)
 1. [x] API: `GET/POST /bios/config` (sum) and `GET/POST /boot/order`
        (efibootmgr), unit tests (bootconfig.go / bootconfig_test.go).
 2. [x] Build scripts unprivileged on dev; `deploy/build-golden.sh
@@ -26,7 +26,7 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        golden-baremetalservices-maint-546af68a04a19632 at 610c397.
 4. [x] `sc-build test/run.sh`: both images boot under QEMU (4K disk/OVMF,
        ISO/OVMF, ISO/SeaBIOS) and the agent answers.
-5. [ ] Pointing boothost/<host> at -maint and back: stormcentral#236
+5. [x] Pointing boothost/<host> at -maint and back: stormcentral#236
        landed (`testhost maint`); server1 verified 2026-10-10 (#24):
        boots the -maint golden, /health and /boot/order answer, `--off`
        restores 11.61. Left: server3 (stormbootx#56 closed), then close #2.
@@ -40,7 +40,8 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
        baremetalservices-maint). 2026-11-25, master: hardware time is
        the owner's to schedule; that wait is cancelled and none is to be
        filed. Issue stays open; the master re-proposes it when the owner
-       names the machine and the day. Nothing to do here until then.
+       names the machine and the day. Master decided (2026-11-25): server1
+       is the proof; #2 closed, server3 not booted.
 6. [x] README.
 
 ### Issue #41 — review: 1 minor finding (web UI, done 2026-11-21)
@@ -141,7 +142,7 @@ For forge1's stormbootx USB stick (owner: "dont serve it, upgrade the image on u
        stormcentral's VM already covers the X9s with the OOB key, so in-band
        sum is a nice-to-have: P3, issue stays open. Next: try in-band on an X9
        once one boots this image. That is owner-scheduled hardware (master,
-       2026-11-25, on #2): no wait is filed; it comes with #2's boot.
+       2026-11-25): no wait is filed; needs the owner to name an X9 and a day.
 
 ### Issue #15 — POST /disks/wipe said ok on an HDD and wiped nothing (done 2026-10-01)
 - wipe.go: refuse in-use disks; wipefs parts + disk; sgdisk --zap-all;

@@ -20,6 +20,10 @@ one image build — never on server1, never with podman, no `make deploy`:
 | `baremetalservices` | Hybrid ISO: ISOLINUX (BIOS) + GRUB (UEFI), MBR+GPT | BMC virtual CD, USB sticks; boot helper `iso` |
 | `baremetalservices-maint` | GPT disk at **4096-byte blocks**, one ESP holding a unified kernel image as `\EFI\BOOT\BOOTX64.EFI` | Network boot through stormbootx at NIC speed; boot helper `img` |
 
+On hardware, the -maint golden has been network-booted through stormbootx only on server1
+(2026-10-10, #24: `testhost maint server1`, agent answered `/health`, `/system`,
+`/boot/order`; `--off` restored its release). No other blade has booted it yet.
+
 ```bash
 # Build and boot-test both images (from your checkout, after git push)
 sc-build test/run.sh
