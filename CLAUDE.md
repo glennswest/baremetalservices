@@ -16,17 +16,19 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 
 ## Work plan
 
-### Issue #47 — all-disks wipe took the boot sticks (P0, master, 2026-11-26)
+### Issue #47 — all-disks wipe took the boot sticks (P0, master, done 2026-11-26)
 C2NR0Q2 (Dell R230) and server8 (X9): `POST /disks/wipe` from the -maint
 golden wiped their stormbootx USB sticks; both need the stick re-flashed by
 hand (master/owner; this repo cannot do it).
-1. [ ] protect.go: all-disks wipe skips the boot device (BootCurrent's device
-       path), USB/removable, stormbootx ESP (or uninspectable); `skipped` in
-       the answer; UEFI with unreadable BootCurrent wipes nothing.
-2. [ ] GET /disks: boot_device, usb, removable, stormbootx, wipe_all_skips.
-3. [ ] README wipe row + section; unit tests; boot test (stick, stormbootx
-       HDD, 4K boot disk skipped and unchanged); sc-build test/run.sh all
-       PASS; images requested; close #47.
+1. [x] 99687c8 protect.go: all-disks wipe skips the boot device (BootCurrent's
+       device path), USB/removable, stormbootx ESP (or uninspectable);
+       `skipped` in the answer; UEFI with unreadable BootCurrent wipes nothing.
+2. [x] GET /disks: boot_device, usb, removable, stormbootx, wipe_all_skips.
+3. [x] README wipe row + section; unit tests; boot test (stick, stormbootx
+       HDD, 4K boot disk skipped and unchanged); 0b6d4ee: run.sh stops on a
+       go vet/test failure (`a && b` under set -e did not). sc-build
+       test/run.sh all PASS at 0b6d4ee (go test ok); images requested; #47 closed.
+- Not on hardware: a real stick's BootCurrent path (USB/HD) is unit-tested only.
 
 ### Issue #46 — wipe's failing step not in the answer (master, done 2026-11-26)
 Seen on C2NR0Q2 (WD20EFAX) and server8 (ST2000DM008) from
