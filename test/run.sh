@@ -5,7 +5,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 export TMPDIR="${TMPDIR:-$ROOT/tmp}"; mkdir -p "$TMPDIR"
-go vet ./... && go test ./...
+# Two commands, not `a && b`: set -e does not stop on a failed `a` in a list (#47)
+go vet ./...
+go test ./...
 OUT="$(mktemp -d "$TMPDIR/bms-out.XXXXXX")"
 bash deploy/build-golden.sh baremetalservices-maint "$OUT/maint"
 bash test/boot-ovmf.sh disk "$OUT/maint/boot/baremetalservices-maint.iso"

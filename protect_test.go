@@ -67,9 +67,9 @@ func TestWipeAllTargets(t *testing.T) {
 		os.MkdirAll(d, 0755)
 		os.WriteFile(filepath.Join(d, "port_no"), []byte(string(rune('0'+i))+"\n"), 0644)
 	}
-	oldB, oldE, oldA, oldV, oldU, oldS := sysBlockDir, efiDir, ataPortDir, efibootmgrV, diskPartUUIDs, stickPartition
+	oldB, oldE, oldA, oldV, oldU, oldS := sysBlockDir, efiDir, ataPortDir, readEfibootmgrV, diskPartUUIDs, stickPartition
 	defer func() {
-		sysBlockDir, efiDir, ataPortDir, efibootmgrV, diskPartUUIDs, stickPartition = oldB, oldE, oldA, oldV, oldU, oldS
+		sysBlockDir, efiDir, ataPortDir, readEfibootmgrV, diskPartUUIDs, stickPartition = oldB, oldE, oldA, oldV, oldU, oldS
 	}()
 	sysBlockDir, efiDir, ataPortDir = filepath.Join(root, "block"), root, filepath.Join(root, "ata_port")
 	diskPartUUIDs = func(d string) []string {
@@ -91,7 +91,7 @@ func TestWipeAllTargets(t *testing.T) {
 	stick := "BootCurrent: 0002\nBootOrder: 0002,0001\n" +
 		"Boot0001* UEFI: PXE IP4 Intel(R) I350\tMAC(0cc47a000001,0)/IPv4(0.0.0.0,0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)\n" +
 		"Boot0002* UEFI: SanDisk\tPciRoot(0x0)/Pci(0x1d,0x0)/USB(1,0)/USB(1,0)/HD(1,GPT,6F2A1C3E-0B9D-4E57-9A43-21C3B5E1D0AA,0x800,0x10000)\n"
-	efibootmgrV = func() (string, error) { return stick, nil }
+	readEfibootmgrV = func() (string, error) { return stick, nil }
 
 	targets, skipped, err := wipeAllTargets(all)
 	if err != nil {
@@ -114,14 +114,14 @@ func TestWipeAllTargets(t *testing.T) {
 	}
 
 	// Booted off SATA port 2 (Sata() is 0-based, ata port_no 1-based): sdb.
-	efibootmgrV = func() (string, error) {
+	readEfibootmgrV = func() (string, error) {
 		return "BootCurrent: 0003\nBoot0003* SATA HDD\tPciRoot(0x0)/Pci(0x1f,0x2)/Sata(1,65535,0)\n", nil
 	}
 	if targets, skipped, _ = wipeAllTargets(all); !reflect.DeepEqual(targets, []string{"nvme0n1", "sda"}) || !strings.HasPrefix(skipped["/dev/sdb"], "boot device") {
 		t.Errorf("SATA boot: targets %v skipped %v", targets, skipped)
 	}
 	// A PCI path with no port: every disk under that controller is kept.
-	efibootmgrV = func() (string, error) { return "BootCurrent: 0003\nBoot0003* AHCI\tPciRoot(0x0)/Pci(0x1f,0x2)\n", nil }
+	readEfibootmgrV = func() (string, error) { return "BootCurrent: 0003\nBoot0003* AHCI\tPciRoot(0x0)/Pci(0x1f,0x2)\n", nil }
 	if targets, _, _ = wipeAllTargets(all); !reflect.DeepEqual(targets, []string{"nvme0n1"}) {
 		t.Errorf("ambiguous AHCI boot: targets %v, want nvme0n1 only", targets)
 	}
@@ -132,12 +132,12 @@ func TestWipeAllTargets(t *testing.T) {
 		}
 		return "", nil
 	}
-	efibootmgrV = func() (string, error) { return stick, nil }
+	readEfibootmgrV = func() (string, error) { return stick, nil }
 	if targets, skipped, _ = wipeAllTargets(all); !reflect.DeepEqual(targets, []string{"nvme0n1", "sdb", "sdd"}) || !strings.Contains(skipped["/dev/sda"], "I/O error") {
 		t.Errorf("uninspectable ESP: targets %v skipped %v", targets, skipped)
 	}
 	// UEFI with unreadable boot entries: nothing is wiped.
-	efibootmgrV = func() (string, error) { return "", errors.New("EFI variables are not supported") }
+	readEfibootmgrV = func() (string, error) { return "", errors.New("EFI variables are not supported") }
 	if targets, _, err = wipeAllTargets(all); err == nil || targets != nil {
 		t.Errorf("unreadable BootCurrent: targets %v err %v, want an error", targets, err)
 	}

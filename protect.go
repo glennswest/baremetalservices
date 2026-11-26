@@ -32,8 +32,8 @@ var (
 	ataPortDir = "/sys/class/ata_port"
 )
 
-// efibootmgrV runs `efibootmgr -v` (tests replace it).
-var efibootmgrV = func() (string, error) { return runStdout("efibootmgr", "-v") }
+// readEfibootmgrV runs `efibootmgr -v` (tests replace it).
+var readEfibootmgrV = func() (string, error) { return runStdout("efibootmgr", "-v") }
 
 // diskPartUUIDs lists the PARTUUIDs of disk's partitions, lowercase (GPT:
 // the partition GUID; MBR: <signature>-<nn>). Tests replace it.
@@ -161,7 +161,7 @@ func bootDiskSet(disks []string) (set map[string]bool, why string, err error) {
 	if _, err := os.Stat(efiDir); err != nil {
 		return set, "legacy BIOS boot: no BootCurrent", nil
 	}
-	out, err := efibootmgrV()
+	out, err := readEfibootmgrV()
 	if err != nil {
 		return set, "", fmt.Errorf("efibootmgr -v: %v", err)
 	}
