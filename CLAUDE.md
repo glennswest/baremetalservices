@@ -16,6 +16,17 @@ initramfs + Go agent (`main.go`) exposing hardware, disk, SMART, IPMI, BIOS
 
 ## Work plan
 
+### Issue #46 — wipe's failing step not in the answer (master, 2026-11-26)
+Seen on C2NR0Q2 (WD20EFAX) and server8 (ST2000DM008) from
+golden-baremetalservices-maint-91c6bbfefbe6224c: `status: error` within ~1
+minute, first 600 bytes all ok steps. The cause was in the string `error`
+after all of `data` (likely another disk of the all-disks wipe); not known yet.
+1. [ ] Answer leads with `error: {device, step, message}`, `verdicts`,
+       `failures`, then `data`; pre-checks are steps; size-0 disk fails.
+2. [ ] README: what a wipe does on a rotational disk (not a full overwrite).
+3. [ ] Unit tests; boot test (read-only disk: error.step in first 600 bytes);
+       sc-build test/run.sh all PASS; image requested; close #46.
+
 ### Issue #2 — golden on dev + network boot via stormbootx (P1, closed 2026-11-25)
 1. [x] API: `GET/POST /bios/config` (sum) and `GET/POST /boot/order`
        (efibootmgr), unit tests (bootconfig.go / bootconfig_test.go).

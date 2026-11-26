@@ -173,11 +173,42 @@ swap or held by device-mapper/md. Otherwise, for each disk:
 5. re-read the partition table, then verify: no partitions left, `wipefs`
    finds no signature, and the first and last MiB read back zero
 
-`status` is `ok` only when every disk verified. Otherwise the request
-returns HTTP 500 with `status: error`. In both cases `data` maps each device
-to its steps (`step`, `ok`, `output`), `rotational`, `partitions_before` and
-`verified`. A wipe removes the partition tables and filesystems; it does not
-overwrite all the data (that is `/disks/secure-erase/{dev}`).
+What `ok` means: every disk is free of partition tables, filesystem/RAID/LVM
+signatures, and reads zero in its first and last 64 MiB and the first 1 GiB of
+each old partition — the same on a rotational disk as on an SSD (an SSD also
+gets `blkdiscard`). It is **not** a full overwrite: most of the old data is
+still on the platters (use `/disks/secure-erase/{dev}` for that). On a 2 TB
+HDD a wipe writes 1-5 GiB, so it takes seconds to a couple of minutes; an
+answer within a minute is normal for an `ok` as well as for an `error`.
+
+`status` is `ok` only when every disk verified; otherwise HTTP 500 with
+`status: error`. The answer leads with what failed (#46), before the long
+per-step data:
+
+```json
+{
+  "status": "error",
+  "error": {"device": "/dev/sdb", "step": "zero", "message": "write at 0: no medium found"},
+  "message": "Wipe failed on 1 of 2 disk(s): /dev/sdb failed at zero: write at 0: no medium found",
+  "verdicts": {"/dev/sda": "wiped and verified", "/dev/sdb": "failed at zero: write at 0: no medium found"},
+  "failures": [{"device": "/dev/sdb", "step": "zero", "message": "write at 0: no medium found"}],
+  "data": {"/dev/sda": {"device": "/dev/sda", "verdict": "...", "verified": true, "seconds": 41.2, "steps": [...]}, ...}
+}
+```
+
+- `error`: the first failed disk (in wipe order), its failed step and message.
+  A request refused before any disk is touched has one too (`step`
+  `request`, `lock` (409), `check disk` (404), `list disks`).
+- `verdicts`: one line per disk, `wiped and verified` or `failed at <step>: <message>`.
+- `failures`: every failed disk, same shape as `error`.
+- `data`: per device `verdict`, `verified`, `failed_step`, `error`,
+  `seconds`, `rotational`, `partitions_before` and `steps` (`step`, `ok`,
+  `output`). The checks before the first command are steps as well:
+  `check disk` (a whole disk, size not 0), `read partitions`, `in-use check`.
+
+Unlike the other endpoints, the wipe's `error` is an object, not a string.
+The all-disks form wipes every `lsblk` disk, BMC virtual media and USB
+sticks included, so a drive with no medium fails it at `check disk`.
 
 Verified on a real blade (#24, 2026-10-10): server1's Seagate ST2000DM008
 HDD (4 partitions) wiped in the -maint image to `ok`, `verified: true`, no

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### 2026-11-26
+- **fix(wipe):** A failed `POST /disks/wipe[/{dev}]` put its cause in a string `error` after the whole per-step `data`, so a reader of the first 600 bytes saw only ok steps (the first disk's) and not which disk or step failed (#46). The answer now leads with `error: {device, step, message}` (first failed disk), `verdicts` (one line per disk: `wiped and verified` / `failed at <step>: <message>`) and `failures`, then `data`. Each disk's result carries `verdict`, `failed_step` and `seconds`; the checks before the first command (`check disk`, `read partitions`, `in-use check`) are steps, and a size-0 disk (no medium) fails at `check disk`. Requests refused before any disk (405/400/404/409) answer the same `error` object. The wipe's `error` is now an object, not a string.
+- **docs(wipe):** README says what `ok` means on a rotational disk: tables, signatures and the edges/partition heads zeroed and verified, not a full overwrite (1-5 GiB on a 2 TB HDD, seconds to minutes).
+- **test:** `TestWipeAnswerLeadsWithTheFailure`, `TestWipeDiskPrecheckSteps`; the QEMU boot test wipes the read-only virtio disk and checks `error.step` is its failed step, within the first 600 bytes, and the verdicts of the verified HDD/SSD wipes (#46).
+
 ### 2026-11-25
 - **docs:** #14 closed by the master's decision on the verified glibc fix (2315d6d: `sum`/`mlxup` run on the musl image). In-band `sum` BIOS config on a real X9 moved to its own issue, #45 (P3, needs owner-scheduled hardware). README now points to #45.
 - **docs:** #2 closed by the master's decision: the network boot of the -maint golden through stormbootx is proven on server1 (2026-10-10, #24); server3 was not booted. README says which blade it was verified on.

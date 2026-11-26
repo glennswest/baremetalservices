@@ -204,6 +204,8 @@ for off in (0, size - M):
     f.seek(off)
     if f.read(M).count(0) != M: sys.exit(1)
 PY
+    vd=$(json "d['verdicts']['/dev/$name']+' '+str('error' in d)" <<<"$out")
+    [ "$vd" = "wiped and verified False" ] || fail "wipe: $name: verdict/error '$vd': $out"
     say "wipe $kind ($name): verified; steps ${v##* }; host image zero at head and tail"
 done
 out=$(api -X POST "http://127.0.0.1:$PORT/disks/wipe/nosuchdisk")
@@ -261,6 +263,16 @@ out=$(api -X POST "http://127.0.0.1:$PORT/disks/secure-erase/$ero")
 grep -q '"status":"error"' <<<"$out" || fail "erase: read-only $ero was reported erased: $out"
 cmp -s "$W/erasero.img" "$W/erasero.orig" || fail "erase: the read-only disk changed"
 say "erase: read-only $ero refused: $(json "d['error']" <<<"$out")"
+# A failed wipe leads with what failed (#46): error {device, step, message}
+# in the first 600 bytes, the step is the failed one in data, and the
+# per-disk verdict says "failed at <step>".
+out=$(api -X POST "http://127.0.0.1:$PORT/disks/wipe/$ero")
+v=$(json "d['status']+'|'+d['error']['device']+'|'+d['error']['step']+'|'+str(d['error']['step'] in [s['step'] for s in d['data']['/dev/$ero']['steps'] if not s['ok']])+'|'+d['verdicts']['/dev/$ero']" <<<"$out") \
+    || fail "wipe: read-only $ero: no error object: $out"
+case "$v" in "error|/dev/$ero|"*"|True|failed at "*) ;; *) fail "wipe: read-only $ero: $v: $out" ;; esac
+head -c 600 <<<"$out" | grep -q "\"step\":\"$(cut -d'|' -f3 <<<"$v")\"" || fail "wipe: the failed step is not in the first 600 bytes: $out"
+cmp -s "$W/erasero.img" "$W/erasero.orig" || fail "wipe: the read-only disk changed"
+say "wipe: read-only $ero: $(cut -d'|' -f5 <<<"$v"); first 600 bytes: $(head -c 200 <<<"$out")"
 
 # Image write (#36).
 disks=$(api "http://127.0.0.1:$PORT/disks")

@@ -11,6 +11,12 @@
 //	verify: no partitions, wipefs finds no signature, head and tail read zero
 //
 // Any failed step fails the disk, and any failed disk fails the request.
+// A wipe does not overwrite the whole disk (that is secure-erase): on a 2 TB
+// HDD it writes about 1-5 GiB and takes seconds to a minute or two.
+//
+// The answer leads with what failed (#46): "error" is {device, step,
+// message} of the first failed disk, "verdicts" one line per disk, then
+// "failures" (every failed disk) and the full per-step "data".
 package main
 
 import (
@@ -24,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const (
@@ -60,11 +67,40 @@ type wipeStep struct {
 
 type diskWipeResult struct {
 	Device     string     `json:"device"`
+	Verdict    string     `json:"verdict"`
+	Verified   bool       `json:"verified"`
+	FailedStep string     `json:"failed_step,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	Seconds    float64    `json:"seconds"`
 	Rotational bool       `json:"rotational"`
 	Partitions []string   `json:"partitions_before"`
 	Steps      []wipeStep `json:"steps"`
-	Verified   bool       `json:"verified"`
-	Error      string     `json:"error,omitempty"`
+}
+
+// wipeError names what failed: the device, the step and its message.
+type wipeError struct {
+	Device  string `json:"device,omitempty"`
+	Step    string `json:"step"`
+	Message string `json:"message"`
+}
+
+// wipeResponse is the answer of POST /disks/wipe[/{dev}]. Field order is the
+// JSON order: the failure and the verdicts come before the long step lists.
+type wipeResponse struct {
+	Status   string                    `json:"status"`
+	Error    *wipeError                `json:"error,omitempty"`
+	Message  string                    `json:"message,omitempty"`
+	Verdicts map[string]string         `json:"verdicts,omitempty"`
+	Failures []wipeError               `json:"failures,omitempty"`
+	Data     map[string]diskWipeResult `json:"data,omitempty"`
+}
+
+// verdict is the one-line summary of a disk's wipe.
+func (r diskWipeResult) verdict() string {
+	if r.Verified {
+		return "wiped and verified"
+	}
+	return "failed at " + r.FailedStep + ": " + r.Error
 }
 
 // readSysInt reads a decimal integer sysfs attribute.
@@ -228,9 +264,15 @@ func readsZero(dev string, off, n int64) (bool, error) {
 }
 
 // wipeDisk wipes and verifies one whole disk, named as in /sys/block.
-func wipeDisk(disk string) diskWipeResult {
+func wipeDisk(disk string) (res diskWipeResult) {
 	dev := "/dev/" + disk
-	res := diskWipeResult{Device: dev, Partitions: []string{}, Steps: []wipeStep{}}
+	start := time.Now()
+	res = diskWipeResult{Device: dev, Partitions: []string{}, Steps: []wipeStep{}}
+	defer func() {
+		res.Seconds = float64(time.Since(start).Milliseconds()) / 1000
+		res.Verdict = res.verdict()
+	}()
+	// step records a step; a failed one is the disk's failed_step and error.
 	step := func(name string, out string, err error) bool {
 		s := wipeStep{Step: name, OK: err == nil, Output: strings.TrimSpace(out)}
 		if err != nil && s.Output == "" {
@@ -238,29 +280,33 @@ func wipeDisk(disk string) diskWipeResult {
 		}
 		res.Steps = append(res.Steps, s)
 		if err != nil {
-			res.Error = name + " failed: " + s.Output
+			res.FailedStep = name
+			res.Error = s.Output
 		}
 		return err == nil
 	}
 
 	sectors, err := readSysInt(filepath.Join(sysBlockDir, disk, "size"))
 	if err != nil {
-		res.Error = dev + " is not a whole disk (no " + filepath.Join(sysBlockDir, disk) + ")"
+		err = fmt.Errorf("%s is not a whole disk (no %s)", dev, filepath.Join(sysBlockDir, disk, "size"))
+	} else if sectors == 0 {
+		err = fmt.Errorf("%s has size 0 (no medium?)", dev)
+	}
+	if !step("check disk", "", err) {
 		return res
 	}
 	size := sectors * 512
 	rot, _ := readSysInt(filepath.Join(sysBlockDir, disk, "queue", "rotational"))
 	res.Rotational = rot != 0
 	parts, err := diskPartitions(disk)
-	if err != nil {
-		res.Error = err.Error()
+	if !step("read partitions", "", err) {
 		return res
 	}
 	for _, p := range parts {
 		res.Partitions = append(res.Partitions, p.Name)
 	}
 	if why := diskInUse(disk, parts); why != "" {
-		res.Error = "in use: " + why
+		step("in-use check", "", fmt.Errorf("in use: %s", why))
 		return res
 	}
 
@@ -341,9 +387,39 @@ func wipeDisk(disk string) diskWipeResult {
 	return res
 }
 
+// wipeRequestError answers a request refused before any disk was touched.
+func wipeRequestError(w http.ResponseWriter, code int, device, step, msg string) {
+	sendJSON(w, code, wipeResponse{Status: "error", Error: &wipeError{Device: device, Step: step, Message: msg}, Message: msg})
+}
+
+// wipeAnswer builds the answer for the wiped disks, in the order wiped.
+func wipeAnswer(results []diskWipeResult) (int, wipeResponse) {
+	resp := wipeResponse{Verdicts: map[string]string{}, Data: map[string]diskWipeResult{}}
+	for _, r := range results {
+		resp.Verdicts[r.Device] = r.Verdict
+		resp.Data[r.Device] = r
+		if !r.Verified {
+			resp.Failures = append(resp.Failures, wipeError{Device: r.Device, Step: r.FailedStep, Message: r.Error})
+		}
+	}
+	if len(resp.Failures) > 0 {
+		resp.Status = "error"
+		resp.Error = &resp.Failures[0]
+		var lines []string
+		for _, f := range resp.Failures {
+			lines = append(lines, f.Device+" failed at "+f.Step+": "+f.Message)
+		}
+		resp.Message = fmt.Sprintf("Wipe failed on %d of %d disk(s): %s", len(resp.Failures), len(results), strings.Join(lines, "; "))
+		return http.StatusInternalServerError, resp
+	}
+	resp.Status = "ok"
+	resp.Message = fmt.Sprintf("Wiped and verified %d disk(s)", len(results))
+	return http.StatusOK, resp
+}
+
 func handleDiskWipe(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		sendJSON(w, http.StatusMethodNotAllowed, APIResponse{Status: "error", Error: "Method not allowed"})
+		wipeRequestError(w, http.StatusMethodNotAllowed, "", "request", "Method not allowed")
 		return
 	}
 
@@ -351,16 +427,17 @@ func handleDiskWipe(w http.ResponseWriter, r *http.Request) {
 	name = strings.TrimPrefix(name, "dev/")
 	var disks []string
 	if name != "" && (strings.Contains(name, "/") || name == "." || name == "..") {
-		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Invalid device name: " + name})
+		wipeRequestError(w, http.StatusBadRequest, "", "request", "Invalid device name: "+name)
 		return
 	}
-	if !lockDiskOp(w) {
+	if !diskOpMu.TryLock() {
+		wipeRequestError(w, http.StatusConflict, "", "lock", "another disk operation (image, wipe, partition, format or secure-erase) is running")
 		return
 	}
 	defer diskOpMu.Unlock()
 	if name != "" {
 		if _, err := os.Stat(filepath.Join(sysBlockDir, name, "size")); err != nil {
-			sendJSON(w, http.StatusNotFound, APIResponse{Status: "error", Error: "/dev/" + name + " is not a whole disk"})
+			wipeRequestError(w, http.StatusNotFound, "/dev/"+name, "check disk", "/dev/"+name+" is not a whole disk")
 			return
 		}
 		disks = []string{name}
@@ -372,31 +449,15 @@ func handleDiskWipe(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(disks) == 0 {
-			sendJSON(w, http.StatusNotFound, APIResponse{Status: "error", Error: "No disks found"})
+			wipeRequestError(w, http.StatusNotFound, "", "list disks", "No disks found")
 			return
 		}
 	}
 
-	results := make(map[string]diskWipeResult)
-	var failed []string
+	var results []diskWipeResult
 	for _, d := range disks {
-		res := wipeDisk(d)
-		results[res.Device] = res
-		if !res.Verified {
-			failed = append(failed, res.Device+": "+res.Error)
-		}
+		results = append(results, wipeDisk(d))
 	}
-	if len(failed) > 0 {
-		sendJSON(w, http.StatusInternalServerError, APIResponse{
-			Status: "error",
-			Error:  fmt.Sprintf("Wipe failed on %d of %d disk(s): %s", len(failed), len(disks), strings.Join(failed, "; ")),
-			Data:   results,
-		})
-		return
-	}
-	sendJSON(w, http.StatusOK, APIResponse{
-		Status:  "ok",
-		Message: fmt.Sprintf("Wiped and verified %d disk(s)", len(disks)),
-		Data:    results,
-	})
+	code, resp := wipeAnswer(results)
+	sendJSON(w, code, resp)
 }

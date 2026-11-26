@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -83,5 +86,57 @@ func TestDiskPartitionsAndInUse(t *testing.T) {
 	}
 	if res := wipeDisk("nosuch"); res.Verified || res.Error == "" {
 		t.Fatalf("wipeDisk(nosuch) = %+v, want an error", res)
+	}
+}
+
+// #46: a failed wipe names the failing disk and step first, before the long
+// per-step data, and every disk gets a one-line verdict.
+func TestWipeAnswerLeadsWithTheFailure(t *testing.T) {
+	long := strings.Repeat("x", 2000)
+	ok := diskWipeResult{Device: "/dev/sda", Verified: true, Steps: []wipeStep{{Step: "wipefs /dev/sda", OK: true, Output: long}}}
+	ok.Verdict = ok.verdict()
+	bad := diskWipeResult{Device: "/dev/sdb", FailedStep: "zero", Error: "write at 0: no medium found",
+		Steps: []wipeStep{{Step: "wipefs /dev/sdb", OK: true, Output: long}, {Step: "zero", Output: "write at 0: no medium found"}}}
+	bad.Verdict = bad.verdict()
+
+	code, resp := wipeAnswer([]diskWipeResult{ok, bad})
+	if code != http.StatusInternalServerError || resp.Status != "error" {
+		t.Fatalf("code %d status %q, want 500 error", code, resp.Status)
+	}
+	if want := (wipeError{"/dev/sdb", "zero", "write at 0: no medium found"}); resp.Error == nil || *resp.Error != want {
+		t.Fatalf("error = %+v, want %+v", resp.Error, want)
+	}
+	if resp.Verdicts["/dev/sda"] != "wiped and verified" || resp.Verdicts["/dev/sdb"] != "failed at zero: write at 0: no medium found" {
+		t.Fatalf("verdicts = %v", resp.Verdicts)
+	}
+	b, _ := json.Marshal(resp)
+	head := string(b[:600])
+	for _, s := range []string{`"error":{"device":"/dev/sdb","step":"zero"`, `"/dev/sdb":"failed at zero`} {
+		if !strings.Contains(head, s) {
+			t.Errorf("first 600 bytes lack %s: %s", s, head)
+		}
+	}
+
+	code, resp = wipeAnswer([]diskWipeResult{ok})
+	if code != http.StatusOK || resp.Status != "ok" || resp.Error != nil || resp.Failures != nil {
+		t.Fatalf("all verified: %d %+v", code, resp)
+	}
+}
+
+// #46: checks before the first command are steps too, so failed_step is set.
+func TestWipeDiskPrecheckSteps(t *testing.T) {
+	root := t.TempDir()
+	old := sysBlockDir
+	sysBlockDir = root
+	defer func() { sysBlockDir = old }()
+	os.MkdirAll(filepath.Join(root, "sdv"), 0755)
+	os.WriteFile(filepath.Join(root, "sdv", "size"), []byte("0\n"), 0644)
+
+	for disk, want := range map[string]string{"nosuch": "is not a whole disk", "sdv": "size 0"} {
+		res := wipeDisk(disk)
+		if res.Verified || res.FailedStep != "check disk" || !strings.Contains(res.Error, want) ||
+			!strings.HasPrefix(res.Verdict, "failed at check disk: ") || len(res.Steps) != 1 || res.Steps[0].OK {
+			t.Errorf("wipeDisk(%s) = %+v", disk, res)
+		}
 	}
 }
