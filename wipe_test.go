@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -137,6 +138,23 @@ func TestWipeDiskPrecheckSteps(t *testing.T) {
 		if res.Verified || res.FailedStep != "check disk" || !strings.Contains(res.Error, want) ||
 			!strings.HasPrefix(res.Verdict, "failed at check disk: ") || len(res.Steps) != 1 || res.Steps[0].OK {
 			t.Errorf("wipeDisk(%s) = %+v", disk, res)
+		}
+	}
+}
+
+// #46: a failed step's message keeps the error, not only the step's output.
+func TestStepOutput(t *testing.T) {
+	for _, c := range []struct {
+		out  string
+		err  error
+		want string
+	}{
+		{"80 MiB in 1 region(s)", nil, "80 MiB in 1 region(s)"},
+		{"80 MiB in 1 region(s)", errors.New("write at 0: operation not permitted"), "80 MiB in 1 region(s): write at 0: operation not permitted"},
+		{"  \n", errors.New("exit status 1"), "exit status 1"},
+	} {
+		if got := stepOutput(c.out, c.err); got != c.want {
+			t.Errorf("stepOutput(%q, %v) = %q, want %q", c.out, c.err, got, c.want)
 		}
 	}
 }

@@ -188,10 +188,10 @@ per-step data:
 ```json
 {
   "status": "error",
-  "error": {"device": "/dev/sdb", "step": "zero", "message": "write at 0: no medium found"},
+  "error": {"device": "/dev/sdb", "step": "zero", "message": "64 MiB in 2 region(s): write at 0: ... no medium found"},
   "message": "Wipe failed on 1 of 2 disk(s): /dev/sdb failed at zero: write at 0: no medium found",
   "verdicts": {"/dev/sda": "wiped and verified", "/dev/sdb": "failed at zero: write at 0: no medium found"},
-  "failures": [{"device": "/dev/sdb", "step": "zero", "message": "write at 0: no medium found"}],
+  "failures": [{"device": "/dev/sdb", "step": "zero", "message": "64 MiB in 2 region(s): write at 0: ... no medium found"}],
   "data": {"/dev/sda": {"device": "/dev/sda", "verdict": "...", "verified": true, "seconds": 41.2, "steps": [...]}, ...}
 }
 ```

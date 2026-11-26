@@ -269,7 +269,7 @@ say "erase: read-only $ero refused: $(json "d['error']" <<<"$out")"
 out=$(api -X POST "http://127.0.0.1:$PORT/disks/wipe/$ero")
 v=$(json "d['status']+'|'+d['error']['device']+'|'+d['error']['step']+'|'+str(d['error']['step'] in [s['step'] for s in d['data']['/dev/$ero']['steps'] if not s['ok']])+'|'+d['verdicts']['/dev/$ero']" <<<"$out") \
     || fail "wipe: read-only $ero: no error object: $out"
-case "$v" in "error|/dev/$ero|"*"|True|failed at "*) ;; *) fail "wipe: read-only $ero: $v: $out" ;; esac
+case "$v" in "error|/dev/$ero|"*"|True|failed at "*"not permitted"*) ;; *) fail "wipe: read-only $ero: $v: $out" ;; esac
 head -c 600 <<<"$out" | grep -q "\"step\":\"$(cut -d'|' -f3 <<<"$v")\"" || fail "wipe: the failed step is not in the first 600 bytes: $out"
 cmp -s "$W/erasero.img" "$W/erasero.orig" || fail "wipe: the read-only disk changed"
 say "wipe: read-only $ero: $(cut -d'|' -f5 <<<"$v"); first 600 bytes: $(head -c 200 <<<"$out")"

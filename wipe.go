@@ -263,6 +263,20 @@ func readsZero(dev string, off, n int64) (bool, error) {
 	return bytes.Count(buf, []byte{0}) == len(buf), nil
 }
 
+// stepOutput is a step's output and, when it failed, its error too: the
+// output alone can be a plan ("80 MiB in 1 region(s)") that hides the cause.
+func stepOutput(out string, err error) string {
+	out = strings.TrimSpace(out)
+	switch {
+	case err == nil:
+		return out
+	case out == "":
+		return err.Error()
+	default:
+		return out + ": " + err.Error()
+	}
+}
+
 // wipeDisk wipes and verifies one whole disk, named as in /sys/block.
 func wipeDisk(disk string) (res diskWipeResult) {
 	dev := "/dev/" + disk
@@ -274,10 +288,7 @@ func wipeDisk(disk string) (res diskWipeResult) {
 	}()
 	// step records a step; a failed one is the disk's failed_step and error.
 	step := func(name string, out string, err error) bool {
-		s := wipeStep{Step: name, OK: err == nil, Output: strings.TrimSpace(out)}
-		if err != nil && s.Output == "" {
-			s.Output = err.Error()
-		}
+		s := wipeStep{Step: name, OK: err == nil, Output: stepOutput(out, err)}
 		res.Steps = append(res.Steps, s)
 		if err != nil {
 			res.FailedStep = name
