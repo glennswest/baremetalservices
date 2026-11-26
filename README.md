@@ -76,12 +76,12 @@ reach the blade can wipe its disks or reflash its firmware. `GET /` lists every 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/disks` | List all disks with details (serial, firmware, SMART health, media type, temperature, power-on hours). NVMe `smart_health` is `PASSED` when the SMART log's `critical_warning` is 0, `FAILED` when any warning bit is set, and absent when it cannot be read (#39). The full SMART set as numbers (`smartctl -x -j`) is not exposed yet (#30) |
+| GET | `/disks` | List all disks with details (serial, firmware, SMART health, media type, temperature, power-on hours). NVMe `smart_health` is `PASSED` when the SMART log's `critical_warning` is 0, `FAILED` when any warning bit is set, and absent when it cannot be read (#39). The full SMART set as numbers (`smartctl -x -j`) is not exposed yet (#30). Each disk also shows `boot_device`, `usb`, `removable`, `stormbootx` (the partition holding `stormboot/`, or `unknown: …`) and `wipe_all_skips` (why `POST /disks/wipe` would leave it alone; empty: it would be wiped) (#47) |
 | GET | `/disks/detail/{dev}` | Detailed info for a specific disk (e.g., `/disks/detail/sda`) |
 | POST | `/disks/partition/{dev}` | Create partition table. Parameters: `label=gpt\|msdos` (default: gpt) |
 | POST | `/disks/format/{dev}` | Format a partition. Parameters: `fstype=ext4\|xfs\|vfat` (default: ext4) |
-| POST | `/disks/wipe` | Wipe and verify ALL disks (see below) |
-| POST | `/disks/wipe/{dev}` | Wipe and verify one whole disk (see below) |
+| POST | `/disks/wipe` | Wipe and verify all **data** disks. Never the boot device, USB or removable media, or a disk with a stormbootx ESP (`stormboot/`); those are listed under `skipped` with the reason. Name one with `/disks/wipe/{dev}` to wipe it (#47, see below) |
+| POST | `/disks/wipe/{dev}` | Wipe and verify one whole disk, whatever it is: the boot stick too (see below) |
 | POST | `/disks/image/{dev}` | Write a raw boot image to a whole disk (a boot stick) and verify it (see below) |
 | POST | `/disks/secure-erase/{dev}` | ATA Secure Erase (hdparm) for SATA, nvme format for NVMe. A disk with no ATA security feature is zeroed end to end (blkdiscard first where it works) and read back past the cache at 16 points, head and tail included; any failed write or non-zero read is HTTP 500 (#39) |
 
@@ -160,6 +160,28 @@ curl -X POST http://server1:8080/bios/configure \
   -H 'Content-Type: application/json' \
   -d '{"quick_boot": true, "quiet_boot": true, "disable_pxe_nics": ["mellanox"]}'
 ```
+
+**What the all-disks wipe skips (#47).** `POST /disks/wipe` with no device
+once took the stormbootx boot sticks of C2NR0Q2 and server8 along with their
+data drives. It now leaves a disk alone, and lists it under `skipped` (and in
+`verdicts` as `skipped: <why>`), when it is:
+
+- the **boot device**: the disk that the firmware's `BootCurrent` entry points
+  at. It is found by the entry's `HD()` partition GUID or MBR signature, else
+  by its PCI path narrowed by `Sata()` port or `NVMe()` namespace. If the path
+  is ambiguous, every disk under it is skipped. On a legacy BIOS boot there is
+  no `BootCurrent`, so only the other rules apply. Under UEFI, if the boot
+  entries can't be read, the all-disks wipe wipes nothing (HTTP 500, step
+  `boot device`);
+- a **USB** device (its sysfs path runs through a USB bus), or **removable**
+  (`/sys/block/<disk>/removable` = 1): sticks, card readers, BMC virtual media;
+- a **stormbootx disk**: a FAT/ESP partition holding `stormboot/`, on any bus.
+  A FAT/ESP partition that cannot be mounted and read also counts, since the
+  wipe can't tell it is not a stick.
+
+If every disk is skipped, the answer is 404 with nothing wiped. To wipe a
+skipped disk, name it: `POST /disks/wipe/{dev}` wipes any whole disk that is
+not in use. `GET /disks` shows the same facts per disk.
 
 A wipe (`POST /disks/wipe[/{dev}]`) refuses a disk that is mounted, used as
 swap or held by device-mapper/md. Otherwise, for each disk:

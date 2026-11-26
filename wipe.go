@@ -91,6 +91,7 @@ type wipeResponse struct {
 	Error    *wipeError                `json:"error,omitempty"`
 	Message  string                    `json:"message,omitempty"`
 	Verdicts map[string]string         `json:"verdicts,omitempty"`
+	Skipped  map[string]string         `json:"skipped,omitempty"`
 	Failures []wipeError               `json:"failures,omitempty"`
 	Data     map[string]diskWipeResult `json:"data,omitempty"`
 }
@@ -465,10 +466,64 @@ func handleDiskWipe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// All disks (#47): leave the boot device, USB/removable media and
+	// stormbootx disks alone; only a named disk is wiped whatever it is.
+	var skipped map[string]string
+	if name == "" {
+		var err error
+		disks, skipped, err = wipeAllTargets(disks)
+		if err != nil {
+			wipeRequestError(w, http.StatusInternalServerError, "", "boot device",
+				"cannot tell which disk this image booted from, so no disk was wiped: "+err.Error()+"; name each disk with POST /disks/wipe/{dev}")
+			return
+		}
+		if len(disks) == 0 {
+			msg := "no disk to wipe: every disk is skipped (name one with POST /disks/wipe/{dev} to wipe it anyway)"
+			sendJSON(w, http.StatusNotFound, wipeResponse{Status: "error", Error: &wipeError{Step: "list disks", Message: msg},
+				Message: msg, Verdicts: skipVerdicts(nil, skipped), Skipped: skipped})
+			return
+		}
+	}
+
 	var results []diskWipeResult
 	for _, d := range disks {
 		results = append(results, wipeDisk(d))
 	}
 	code, resp := wipeAnswer(results)
+	if len(skipped) > 0 {
+		resp.Skipped = skipped
+		resp.Verdicts = skipVerdicts(resp.Verdicts, skipped)
+		resp.Message += fmt.Sprintf("; skipped %d disk(s) (boot device, USB/removable or stormbootx; see skipped)", len(skipped))
+	}
 	sendJSON(w, code, resp)
+}
+
+// wipeAllTargets splits the disks of an all-disks wipe into those to wipe
+// and those skipped (/dev/<disk> -> why). An unknown boot device under UEFI
+// is an error: then nothing is wiped.
+func wipeAllTargets(disks []string) (targets []string, skipped map[string]string, err error) {
+	boot, bootWhy, err := bootDiskSet(disks)
+	if err != nil {
+		return nil, nil, err
+	}
+	skipped = map[string]string{}
+	for _, d := range disks {
+		if p := protectDisk(d, boot, bootWhy, true); len(p.Reasons) > 0 {
+			skipped["/dev/"+d] = strings.Join(p.Reasons, "; ")
+		} else {
+			targets = append(targets, d)
+		}
+	}
+	return targets, skipped, nil
+}
+
+// skipVerdicts adds a "skipped: <why>" verdict for every skipped disk.
+func skipVerdicts(v, skipped map[string]string) map[string]string {
+	if v == nil {
+		v = map[string]string{}
+	}
+	for dev, why := range skipped {
+		v[dev] = "skipped: " + why
+	}
+	return v
 }

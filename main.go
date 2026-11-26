@@ -60,6 +60,13 @@ type DiskInfo struct {
 	Temperature  string       `json:"temperature,omitempty"`
 	PowerOnHours string       `json:"power_on_hours,omitempty"`
 	Partitions   []PartInfo   `json:"partitions,omitempty"`
+	// #47: what makes the all-disks wipe skip it (empty wipe_all_skips: it
+	// would be wiped). Naming the disk wipes it regardless.
+	BootDevice   bool   `json:"boot_device"`
+	USB          bool   `json:"usb"`
+	Removable    bool   `json:"removable"`
+	Stormbootx   string `json:"stormbootx,omitempty"`
+	WipeAllSkips string `json:"wipe_all_skips,omitempty"`
 }
 
 type PartInfo struct {
@@ -1423,7 +1430,32 @@ func handleDisks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	markProtection(disks)
 	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: disks})
+}
+
+// markProtection fills in what the all-disks wipe would skip (#47). The
+// stormbootx check mounts ESPs read-only, so it runs only when no disk
+// operation holds the lock.
+func markProtection(disks []DiskInfo) {
+	var names []string
+	for _, d := range disks {
+		names = append(names, d.Name)
+	}
+	boot, bootWhy, bootErr := bootDiskSet(names)
+	check := diskOpMu.TryLock()
+	if check {
+		defer diskOpMu.Unlock()
+	}
+	for i := range disks {
+		p := protectDisk(disks[i].Name, boot, bootWhy, check)
+		disks[i].BootDevice, disks[i].USB, disks[i].Removable, disks[i].Stormbootx = p.BootDevice, p.USB, p.Removable, p.Stormbootx
+		reasons := p.Reasons
+		if bootErr != nil {
+			reasons = append(reasons, "boot device unknown, the all-disks wipe refuses: "+bootErr.Error())
+		}
+		disks[i].WipeAllSkips = strings.Join(reasons, "; ")
+	}
 }
 
 func handleDiskDetail(w http.ResponseWriter, r *http.Request) {
@@ -1437,8 +1469,11 @@ func handleDiskDetail(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, status, APIResponse{Status: "error", Error: msg})
 		return
 	}
-	disk := getDiskDetail(dev)
-	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: disk})
+	disk := []DiskInfo{getDiskDetail(dev)}
+	if _, err := os.Stat(filepath.Join(sysBlockDir, dev)); err == nil {
+		markProtection(disk) // a whole disk, not a partition
+	}
+	sendJSON(w, http.StatusOK, APIResponse{Status: "ok", Data: disk[0]})
 }
 
 func handleDiskPartition(w http.ResponseWriter, r *http.Request) {

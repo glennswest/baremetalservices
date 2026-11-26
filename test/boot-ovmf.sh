@@ -305,4 +305,37 @@ lc=$(mtype -i "$E" ::/stormboot/local.conf)
 [ "$lc" = "$(printf 'portal = 10.0.0.1\nname = forge1\ntag = forge')" ] || fail "image: local.conf on the stick: $lc"
 [ "$(tail -c 512 "$W/stick.img" | head -c 8)" = "EFI PART" ] || fail "image: no backup GPT at the end of the stick"
 say "image: on the host the stick has the new image, local.conf kept ($(tr '\n' ';' <<<"$lc")), backup GPT at its end"
+# All-disks wipe (#47): it took the stormbootx sticks of C2NR0Q2 and server8.
+# Put a stick image on the SATA HDD too (a stormbootx disk that is not USB),
+# then POST /disks/wipe: the USB stick, that HDD and (disk mode) the boot disk
+# are skipped and unchanged on the host; the SSD is wiped; the read-only
+# virtio disk fails as before, so the answer is an error naming it.
+disks=$(api "http://127.0.0.1:$PORT/disks")
+hdd=$(json "next((x['name'] for x in d['data'] if x.get('serial')=='WIPEHDD'), '')" <<<"$disks")
+ssd=$(json "next((x['name'] for x in d['data'] if x.get('serial')=='WIPESSD'), '')" <<<"$disks")
+out=$(api -X POST -d "url=$url" -d "sha256=$sum" "http://127.0.0.1:$PORT/disks/image/$hdd")
+grep -q '"status":"ok"' <<<"$out" || fail "wipe all: stick image onto $hdd: $out"
+disks=$(api "http://127.0.0.1:$PORT/disks")
+v=$(json "' '.join(x['name']+'='+('B' if x['boot_device'] else '')+('U' if x['usb'] else '')+('S' if x.get('stormbootx') else '') for x in d['data'])" <<<"$disks")
+case " $v " in *" $stick=US "*) ;; *) fail "wipe all: /disks does not mark the stick $stick usb+stormbootx: $v" ;; esac
+case " $v " in *" $hdd=S "*) ;; *) fail "wipe all: /disks does not mark $hdd stormbootx: $v" ;; esac
+case " $v " in *" $ssd= "*) ;; *) fail "wipe all: /disks marks the SSD $ssd: $v" ;; esac
+boot=$(json "' '.join(x['name'] for x in d['data'] if x['boot_device'])" <<<"$disks")
+if [ "$MODE" = disk ]; then
+    [ -n "$boot" ] && [ "${boot// /}" = "$boot" ] || fail "wipe all: disk mode wants one boot_device, got '$boot': $disks"
+else
+    [ -z "$boot" ] || fail "wipe all: $MODE mode (CD-ROM boot) marks a disk as boot_device: '$boot': $disks"
+fi
+say "wipe all: /disks marks $v (boot device: ${boot:-none, CD-ROM})"
+before=$(sha256sum "$W/stick.img" "$W/hdd.img" "$W/image" | cut -d' ' -f1)
+out=$(curl -s --max-time 600 -w '\n%{http_code}' -X POST "http://127.0.0.1:$PORT/disks/wipe")
+code=${out##*$'\n'}; out=${out%$'\n'*}
+want="$stick $hdd $boot"
+v=$(json "d['status']+'|'+','.join(f['device'] for f in d.get('failures',[]))+'|'+' '.join(sorted(k[5:] for k in d.get('skipped',{})))+'|'+d['verdicts'].get('/dev/$ssd','')" <<<"$out") \
+    || fail "wipe all: $code $out"
+[ "$v" = "error|/dev/$ero|$(tr ' ' '\n' <<<"$want" | grep . | sort | tr '\n' ' ' | sed 's/ $//')|wiped and verified" ] && [ "$code" = 500 ] \
+    || fail "wipe all: $code '$v': $out"
+grep -q 'stormbootx' <<<"$(json "d['skipped']['/dev/$stick']+d['skipped']['/dev/$hdd']" <<<"$out")" || fail "wipe all: skip reasons: $out"
+[ "$(sha256sum "$W/stick.img" "$W/hdd.img" "$W/image" | cut -d' ' -f1)" = "$before" ] || fail "wipe all: a skipped disk changed on the host"
+say "wipe all: HTTP $code, skipped $(json "'; '.join(k+': '+v for k,v in sorted(d['skipped'].items()))" <<<"$out"); SSD wiped; stick, HDD and boot image unchanged on the host"
 say "PASS"
