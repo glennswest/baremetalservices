@@ -38,8 +38,13 @@ func TestWebMuxServesAPI(t *testing.T) {
 		web.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 		return rec
 	}
-	decode := func(path string, rec *httptest.ResponseRecorder) APIResponse {
-		var r APIResponse
+	// error is a string on most routes and an object on the wipe (#46).
+	type answer struct {
+		Status string          `json:"status"`
+		Error  json.RawMessage `json:"error"`
+	}
+	decode := func(path string, rec *httptest.ResponseRecorder) answer {
+		var r answer
 		if err := json.Unmarshal(rec.Body.Bytes(), &r); err != nil {
 			t.Fatalf("%s: not a JSON answer: %v: %s", path, err, rec.Body.String())
 		}
@@ -76,7 +81,7 @@ func TestWebMuxServesAPI(t *testing.T) {
 			t.Errorf("POST %s: %d %s, want %d", c.path, rec.Code, rec.Body.String(), c.code)
 			continue
 		}
-		if r := decode(c.path, rec); r.Status != "error" || r.Error == "" {
+		if r := decode(c.path, rec); r.Status != "error" || len(r.Error) == 0 || string(r.Error) == `""` {
 			t.Errorf("POST %s: %+v, want a JSON error", c.path, r)
 		}
 	}
